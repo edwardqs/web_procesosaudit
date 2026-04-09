@@ -1,7 +1,13 @@
+export interface Role {
+  id: number;
+  name: string;
+}
+
 export interface User {
   id: number;
   email: string;
-  role: string;
+  roleId: number;
+  roleName?: string;
   name?: string;
   createdAt: string;
 }
@@ -21,5 +27,5 @@ export interface RegisterData {
   email: string;
   password: string;
   name?: string;
-  role?: string;
+  roleId?: number;
 }

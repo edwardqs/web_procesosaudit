@@ -4,9 +4,21 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Home from "./pages/Home";
 import Users from "./pages/Users";
-import Excelencia from "./pages/Excelencia";
+import ExcelenciaAdmin from "./pages/ExcelenciaAdmin";
+import ExcelenciaUser from "./pages/ExcelenciaUser";
 import PrivateRoute from "./components/PrivateRoute";
+import { useAuthStore } from "./stores/authStore";
 import "./index.css";
+
+function Excelencia() {
+  const user = useAuthStore((state) => state.user);
+  
+  if (user?.roleId === 1) {
+    return <ExcelenciaAdmin />;
+  }
+  
+  return <ExcelenciaUser />;
+}
 
 export default function App() {
   return (
@@ -14,12 +26,16 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/excelencia" element={<Excelencia />} />
+        <Route path="/excelencia" element={
+          <PrivateRoute>
+            <Excelencia />
+          </PrivateRoute>
+        } />
 
         <Route
           path="/dashboard"
           element={
-            <PrivateRoute requiredRole="admin">
+            <PrivateRoute requiredRoleId={1}>
               <Dashboard />
             </PrivateRoute>
           }
@@ -37,7 +53,7 @@ export default function App() {
         <Route
           path="/usuarios"
           element={
-            <PrivateRoute requiredRole="admin">
+            <PrivateRoute requiredRoleId={1}>
               <Users />
             </PrivateRoute>
           }

@@ -31,7 +31,7 @@ export default function Home() {
               <div className="sm:pb-2">
                 <span className="inline-flex items-center gap-2 bg-brand-50 border border-brand-200 text-brand-700 text-xs font-bold uppercase tracking-wide px-4 py-2 rounded-xl">
                   <span className="w-2 h-2 rounded-full bg-brand-500" />
-                  {user?.role}
+                  {user?.roleName || (user?.roleId === 1 ? "admin" : "user")}
                 </span>
               </div>
             </div>
@@ -67,7 +67,7 @@ export default function Home() {
               </svg>
             </div>
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Rol</p>
-            <p className="text-base font-semibold text-slate-900 uppercase">{user?.role}</p>
+            <p className="text-base font-semibold text-slate-900 uppercase">{user?.roleName || (user?.roleId === 1 ? "admin" : "user")}</p>
           </div>
         </div>
       </div>

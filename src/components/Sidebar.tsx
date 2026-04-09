@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore";
-import pauserLogo from "../assets/pauser_logo.png";
+import pauserLogo from "../assets/pauser_logo_procesos-removebg-preview.png";
 
 interface SidebarProps {
   open: boolean;
@@ -58,14 +58,8 @@ export default function Sidebar({ open, onClose, isCollapsed, toggleCollapse }: 
         </button>
 
         {/* logo */}
-        <div className={`h-[72px] flex items-center border-b border-white/[0.08] transition-all duration-300 ${isCollapsed ? "justify-center px-0" : "px-6 gap-3"}`}>
-          <img src={pauserLogo} alt="Pauser" className="h-10 w-auto flex-shrink-0" />
-          {!isCollapsed && (
-            <div className="overflow-hidden whitespace-nowrap">
-              <p className="text-[15px] font-bold text-white leading-tight">Pauser</p>
-              <p className="text-[11px] text-slate-500 leading-tight">Auditoria</p>
-            </div>
-          )}
+        <div className="py-5 min-h-[72px] flex items-center justify-center border-b border-white/10 px-4">
+          <img src={pauserLogo} alt="Pauser" className={`object-contain transition-all duration-300 ${isCollapsed ? "w-12 h-auto" : "w-11/12 max-w-[200px] h-auto"}`} />
         </div>
 
         {/* nav */}
@@ -126,7 +120,7 @@ export default function Sidebar({ open, onClose, isCollapsed, toggleCollapse }: 
               <>
                 <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
                   <p className="text-sm font-semibold text-white truncate leading-tight">{user?.name || user?.email}</p>
-                  <p className="text-[11px] text-slate-500 capitalize leading-tight">{user?.role}</p>
+                  <p className="text-[11px] text-slate-500 capitalize leading-tight">{user?.roleName || (user?.roleId === 1 ? "admin" : "user")}</p>
                 </div>
                 <button
                   onClick={logout}

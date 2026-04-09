@@ -3,10 +3,10 @@ import { useAuthStore } from "../stores/authStore";
 
 interface PrivateRouteProps {
   children: React.ReactNode;
-  requiredRole?: string;
+  requiredRoleId?: number;
 }
 
-export default function PrivateRoute({ children, requiredRole }: PrivateRouteProps) {
+export default function PrivateRoute({ children, requiredRoleId }: PrivateRouteProps) {
   const { isAuthenticated, user } = useAuthStore();
   const location = useLocation();
 
@@ -14,8 +14,8 @@ export default function PrivateRoute({ children, requiredRole }: PrivateRoutePro
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requiredRole && user?.role !== requiredRole) {
-    return <Navigate to={user?.role === "admin" ? "/dashboard" : "/home"} replace />;
+  if (requiredRoleId !== undefined && user?.roleId !== requiredRoleId) {
+    return <Navigate to={user?.roleId === 1 ? "/dashboard" : "/home"} replace />;
   }
 
   return <>{children}</>;

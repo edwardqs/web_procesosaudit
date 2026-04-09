@@ -1,33 +1,53 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import api from "../services/api";
-import type { User } from "../types";
+import type { User, Role } from "../types";
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [savingRole, setSavingRole] = useState<number | null>(null);
 
   useEffect(() => {
-    api.get<User[]>("/users")
-      .then((r) => setUsers(r.data))
+    Promise.all([
+      api.get<User[]>("/users").then((r) => r.data),
+      api.get<Role[]>("/users/roles").then((r) => r.data),
+    ])
+      .then(([usersData, rolesData]) => {
+        setUsers(usersData);
+        setRoles(rolesData);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
+  const handleRoleChange = async (userId: number, newRoleId: number) => {
+    setSavingRole(userId);
+    try {
+      await api.put(`/users/${userId}/role`, { roleId: newRoleId });
+      setUsers(users.map(u => u.id === userId ? { ...u, roleId: newRoleId, roleName: roles.find(r => r.id === newRoleId)?.name } : u));
+      setEditingId(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingRole(null);
+    }
+  };
+
   return (
     <Layout title="Usuarios">
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Gestion de usuarios</h2>
+            <h2 className="text-xl font-bold text-slate-900">Gestión de usuarios</h2>
             <p className="text-sm text-slate-500 mt-0.5">
               {loading ? "Cargando..." : `${users.length} usuarios registrados en el sistema`}
             </p>
           </div>
         </div>
 
-        {/* table */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           {loading ? (
             <div className="p-6 space-y-4">
@@ -39,7 +59,6 @@ export default function Users() {
                     <div className="h-3 w-1/4 rounded-lg bg-slate-50 animate-pulse" />
                   </div>
                   <div className="h-7 w-16 rounded-full bg-slate-100 animate-pulse" />
-                  <div className="h-4 w-24 rounded-lg bg-slate-50 animate-pulse hidden sm:block" />
                 </div>
               ))}
             </div>
@@ -51,7 +70,7 @@ export default function Users() {
                 </svg>
               </div>
               <p className="text-base font-semibold text-slate-600">No hay usuarios</p>
-              <p className="text-sm text-slate-400 mt-1">Los usuarios apareceran aqui cuando se registren</p>
+              <p className="text-sm text-slate-400 mt-1">Los usuarios aparecerán aquí cuando se registren</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -61,6 +80,7 @@ export default function Users() {
                     <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Usuario</th>
                     <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Rol</th>
                     <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell">Registro</th>
+                    <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -78,19 +98,49 @@ export default function Users() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                          u.role === "admin"
-                            ? "bg-brand-50 text-brand-700 border border-brand-200"
-                            : "bg-slate-100 text-slate-600 border border-slate-200"
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${u.role === "admin" ? "bg-brand-500" : "bg-slate-400"}`} />
-                          {u.role}
-                        </span>
+                        {editingId === u.id ? (
+                          <select
+                            value={u.roleId}
+                            onChange={(e) => handleRoleChange(u.id, parseInt(e.target.value))}
+                            disabled={savingRole === u.id}
+                            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                          >
+                            {roles.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                            u.roleId === 1
+                              ? "bg-brand-50 text-brand-700 border border-brand-200"
+                              : "bg-slate-100 text-slate-600 border border-slate-200"
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${u.roleId === 1 ? "bg-brand-500" : "bg-slate-400"}`} />
+                            {u.roleName || (u.roleId === 1 ? "admin" : "user")}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 hidden sm:table-cell">
                         <span className="text-sm text-slate-500">
                           {new Date(u.createdAt).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {editingId === u.id ? (
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="text-sm text-slate-500 hover:text-slate-700"
+                          >
+                            Cancelar
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setEditingId(u.id)}
+                            className="text-sm text-brand-600 hover:text-brand-700 font-medium"
+                          >
+                            Cambiar rol
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
