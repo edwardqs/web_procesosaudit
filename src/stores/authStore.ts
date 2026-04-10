@@ -7,6 +7,9 @@ interface User {
   roleName?: string;
   name?: string;
   createdAt?: string;
+  sede?: { id: number; name: string };
+  unidadNegocio?: { id: number; name: string };
+  cargo?: { id: number; name: string };
 }
 
 interface AuthState {

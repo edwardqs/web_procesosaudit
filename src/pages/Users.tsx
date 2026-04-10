@@ -1,145 +1,215 @@
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import api from "../services/api";
-import type { User, Role } from "../types";
+
+interface Role { id: number; name: string; }
+interface Sede { id: number; name: string; }
+interface UnidadNegocio { id: number; name: string; }
+interface Cargo { id: number; name: string; }
+
+interface UserData {
+  id: number;
+  email: string;
+  name: string;
+  roleId: number;
+  roleName?: string;
+  createdAt: string;
+  sede?: { id: number; name: string };
+  unidadNegocio?: { id: number; name: string };
+  cargo?: { id: number; name: string };
+}
 
 export default function Users() {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserData[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [unidades, setUnidades] = useState<UnidadNegocio[]>([]);
+  const [cargos, setCargos] = useState<Cargo[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [savingRole, setSavingRole] = useState<number | null>(null);
+  const [saving, setSaving] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ roleId: 0, sedeId: 0, unidadId: 0, cargoId: 0 });
+  const [filters, setFilters] = useState({ sedeId: 0, unidadId: 0, cargoId: 0 });
 
   useEffect(() => {
     Promise.all([
-      api.get<User[]>("/users").then((r) => r.data),
-      api.get<Role[]>("/users/roles").then((r) => r.data),
-    ])
-      .then(([usersData, rolesData]) => {
-        setUsers(usersData);
-        setRoles(rolesData);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      api.get("/users/roles"),
+      api.get("/references/sedes"),
+      api.get("/references/unidades"),
+      api.get("/references/cargos"),
+    ]).then(([rolesRes, sedesRes, unidadesRes, cargosRes]) => {
+      setRoles(rolesRes.data);
+      setSedes(sedesRes.data);
+      setUnidades(unidadesRes.data);
+      setCargos(cargosRes.data);
+    });
   }, []);
 
-  const handleRoleChange = async (userId: number, newRoleId: number) => {
-    setSavingRole(userId);
+  useEffect(() => {
+    fetchUsers();
+  }, [filters]);
+
+  const fetchUsers = () => {
+    const params = new URLSearchParams();
+    if (filters.sedeId) params.append("sedeId", filters.sedeId.toString());
+    if (filters.unidadId) params.append("unidadId", filters.unidadId.toString());
+    if (filters.cargoId) params.append("cargoId", filters.cargoId.toString());
+
+    api.get(`/users?${params}`).then((res) => {
+      const mapped = (res.data as any[]).map((u: any) => ({
+        ...u,
+        roleId: u.role?.id,
+        roleName: u.role?.name,
+      }));
+      setUsers(mapped);
+    }).catch(() => {})
+    .finally(() => setLoading(false));
+  };
+
+  const startEdit = (user: UserData) => {
+    setEditingId(user.id);
+    setEditForm({
+      roleId: user.roleId,
+      sedeId: user.sede?.id || 0,
+      unidadId: user.unidadNegocio?.id || 0,
+      cargoId: user.cargo?.id || 0,
+    });
+  };
+
+  const handleSave = async (userId: number) => {
+    setSaving(userId);
     try {
-      await api.put(`/users/${userId}/role`, { roleId: newRoleId });
-      setUsers(users.map(u => u.id === userId ? { ...u, roleId: newRoleId, roleName: roles.find(r => r.id === newRoleId)?.name } : u));
+      const res = await api.put(`/users/${userId}/role`, { roleId: editForm.roleId, sedeId: editForm.sedeId, unidadId: editForm.unidadId, cargoId: editForm.cargoId });
+      const updated = res.data;
+      setUsers(users.map(u => u.id === userId ? {
+        ...u,
+        roleId: updated.role?.id || editForm.roleId,
+        roleName: updated.role?.name,
+        sede: updated.sede,
+        unidadNegocio: updated.unidadNegocio,
+        cargo: updated.cargo,
+      } : u));
       setEditingId(null);
     } catch (e) {
       console.error(e);
     } finally {
-      setSavingRole(null);
+      setSaving(null);
     }
   };
 
   return (
     <Layout title="Usuarios">
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Gestión de usuarios</h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              {loading ? "Cargando..." : `${users.length} usuarios registrados en el sistema`}
+              {loading ? "Cargando..." : `${users.length} usuarios`}
             </p>
           </div>
         </div>
 
+        <div className="flex gap-3 flex-wrap">
+          <select value={filters.sedeId} onChange={(e) => setFilters({ ...filters, sedeId: parseInt(e.target.value) })} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            <option value={0}>Todas las sedes</option>
+            {sedes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <select value={filters.unidadId} onChange={(e) => setFilters({ ...filters, unidadId: parseInt(e.target.value) })} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            <option value={0}>Todas las unidades</option>
+            {unidades.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          {(filters.sedeId || filters.unidadId) && (
+            <button onClick={() => setFilters({ sedeId: 0, unidadId: 0, cargoId: 0 })} className="text-sm text-slate-500 hover:text-slate-700">
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           {loading ? (
-            <div className="p-6 space-y-4">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 animate-pulse" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 w-1/3 rounded-lg bg-slate-100 animate-pulse" />
-                    <div className="h-3 w-1/4 rounded-lg bg-slate-50 animate-pulse" />
-                  </div>
-                  <div className="h-7 w-16 rounded-full bg-slate-100 animate-pulse" />
-                </div>
-              ))}
-            </div>
+            <div className="p-6 text-center">Cargando...</div>
           ) : users.length === 0 ? (
             <div className="py-20 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.25} className="w-8 h-8 text-slate-400">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              <p className="text-base font-semibold text-slate-600">No hay usuarios</p>
-              <p className="text-sm text-slate-400 mt-1">Los usuarios aparecerán aquí cuando se registren</p>
+              <p className="text-slate-500">No hay usuarios</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Usuario</th>
-                    <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Rol</th>
-                    <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell">Registro</th>
-                    <th className="text-left px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">Acciones</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Usuario</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Sede</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Unidad</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Cargo</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Rol</th>
+                    <th className="text-left px-4 py-3 text-xs font-bold uppercase text-slate-500">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((u, i) => (
-                    <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${i < users.length - 1 ? "border-b border-slate-100" : ""}`}>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
+                    <tr key={u.id} className={`hover:bg-slate-50 ${i < users.length - 1 ? "border-b border-slate-100" : ""}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-bold">
                             {(u.name || u.email)[0].toUpperCase()}
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 truncate">{u.name || "-"}</p>
-                            <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{u.name || "-"}</p>
+                            <p className="text-xs text-slate-400">{u.email}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         {editingId === u.id ? (
-                          <select
-                            value={u.roleId}
-                            onChange={(e) => handleRoleChange(u.id, parseInt(e.target.value))}
-                            disabled={savingRole === u.id}
-                            className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                          >
-                            {roles.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
+                          <select value={editForm.sedeId} onChange={(e) => setEditForm({ ...editForm, sedeId: parseInt(e.target.value) })} className="text-sm border rounded px-2 py-1">
+                            <option value={0}>Seleccionar</option>
+                            {sedes.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                           </select>
                         ) : (
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                            u.roleId === 1
-                              ? "bg-brand-50 text-brand-700 border border-brand-200"
-                              : "bg-slate-100 text-slate-600 border border-slate-200"
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${u.roleId === 1 ? "bg-brand-500" : "bg-slate-400"}`} />
-                            {u.roleName || (u.roleId === 1 ? "admin" : "user")}
+                          <span className="text-sm text-slate-600">{u.sede?.name || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingId === u.id ? (
+                          <select value={editForm.unidadId} onChange={(e) => setEditForm({ ...editForm, unidadId: parseInt(e.target.value) })} className="text-sm border rounded px-2 py-1">
+                            <option value={0}>Seleccionar</option>
+                            {unidades.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-slate-600">{u.unidadNegocio?.name || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingId === u.id ? (
+                          <select value={editForm.cargoId} onChange={(e) => setEditForm({ ...editForm, cargoId: parseInt(e.target.value) })} className="text-sm border rounded px-2 py-1">
+                            <option value={0}>Seleccionar</option>
+                            {cargos.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-sm text-slate-600">{u.cargo?.name || "-"}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {editingId === u.id ? (
+                          <select value={editForm.roleId} onChange={(e) => setEditForm({ ...editForm, roleId: parseInt(e.target.value) })} className="text-sm border rounded px-2 py-1">
+                            {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          </select>
+                        ) : (
+                          <span className={`text-xs font-medium px-2 py-1 rounded ${u.roleId === 1 ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-600"}`}>
+                            {u.roleName || "user"}
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 hidden sm:table-cell">
-                        <span className="text-sm text-slate-500">
-                          {new Date(u.createdAt).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" })}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         {editingId === u.id ? (
-                          <button
-                            onClick={() => setEditingId(null)}
-                            className="text-sm text-slate-500 hover:text-slate-700"
-                          >
-                            Cancelar
-                          </button>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleSave(u.id)} disabled={saving === u.id} className="text-xs text-brand-600 hover:underline">
+                              {saving === u.id ? "Guardando..." : "Guardar"}
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="text-xs text-slate-500 hover:underline">Cancelar</button>
+                          </div>
                         ) : (
-                          <button
-                            onClick={() => setEditingId(u.id)}
-                            className="text-sm text-brand-600 hover:text-brand-700 font-medium"
-                          >
-                            Cambiar rol
-                          </button>
+                          <button onClick={() => startEdit(u)} className="text-sm text-brand-600 hover:underline">Editar</button>
                         )}
                       </td>
                     </tr>
