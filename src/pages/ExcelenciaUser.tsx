@@ -14,9 +14,19 @@ interface Question {
   id: number;
   text: string;
   description?: string;
-  points?: number;
+  frequencyType?: string;
+  frequencyDay?: number | null;
+  frequencyInterval?: number | null;
   order: number;
   configs: QuestionConfig[];
+  options?: QuestionOption[];
+}
+
+interface QuestionOption {
+  id: number;
+  label: string;
+  text: string;
+  score: number;
 }
 
 interface AnswerFile {
@@ -43,6 +53,7 @@ export default function ExcelenciaUser() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState<{ [questionId: number]: AnswerFile[] }>({});
+  const [selectedOptions, setSelectedOptions] = useState<{ [questionId: number]: number | null }>({});
   const [submitting, setSubmitting] = useState(false);
   const [myResult, setMyResult] = useState<EvaluationResult | null>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement }>({});
@@ -58,15 +69,20 @@ export default function ExcelenciaUser() {
       setQuestions(qRes.data);
       
       const initialAnswers: { [questionId: number]: AnswerFile[] } = {};
+      const initialOptions: { [questionId: number]: number | null } = {};
       const draftStr = localStorage.getItem(`pauser_answers_draft_${cargoId || 'normal'}`);
       const draft = draftStr ? JSON.parse(draftStr) : null;
 
       qRes.data.forEach((q: Question) => {
-        initialAnswers[q.id] = draft?.[q.id] || [];
+        initialAnswers[q.id] = draft?.[q.id]?.files || [];
+        initialOptions[q.id] = draft?.[q.id]?.optionId || null;
       });
       setAnswers(initialAnswers);
+      setSelectedOptions(initialOptions);
 
-      const resultRes = await api.get("/evaluations/my-result");
+      const resultRes = await api.get("/evaluations/my-result", {
+        params: { source: "EXCELENCIA" },
+      });
       setMyResult(resultRes.data.evaluation);
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -78,9 +94,16 @@ export default function ExcelenciaUser() {
   useEffect(() => {
     if (!loading) {
       const cargoId = (user as any)?.cargo?.id;
-      localStorage.setItem(`pauser_answers_draft_${cargoId || 'normal'}`, JSON.stringify(answers));
+      const draftData: { [questionId: number]: { files: AnswerFile[]; optionId: number | null } } = {};
+      Object.keys(answers).forEach(qId => {
+        draftData[parseInt(qId)] = {
+          files: answers[parseInt(qId)],
+          optionId: selectedOptions[parseInt(qId)] || null,
+        };
+      });
+      localStorage.setItem(`pauser_answers_draft_${cargoId || 'normal'}`, JSON.stringify(draftData));
     }
-  }, [answers, loading, user]);
+  }, [answers, selectedOptions, loading, user]);
 
   const getFileAccept = (fileType: string) => {
     switch (fileType) {
@@ -98,6 +121,7 @@ export default function ExcelenciaUser() {
       PDF: "PDF",
       PPT: "PowerPoint",
       EXCEL: "Excel",
+      IN_SITU: "IN SITU (Revisión presencial)",
     };
     return labels[fileType] || fileType;
   };
@@ -150,13 +174,25 @@ export default function ExcelenciaUser() {
     }));
   };
 
+  const handleOptionSelect = (questionId: number, optionId: number) => {
+    setSelectedOptions(prev => ({
+      ...prev,
+      [questionId]: optionId,
+    }));
+  };
+
   const hasAllRequiredFiles = (question: Question) => {
     const questionFiles = answers[question.id] || [];
+    const hasOptionSelected = selectedOptions[question.id] !== null && selectedOptions[question.id] !== undefined;
+    
     for (const config of question.configs) {
+      // IN_SITU no requiere archivos, se considera completado automáticamente
+      if (config.fileType === "IN_SITU") continue;
+      
       const ofType = questionFiles.filter(f => f.fileType === config.fileType).length;
       if (ofType < config.maxFiles) return false;
     }
-    return true;
+    return hasOptionSelected && question.options && question.options.length > 0;
   };
 
   const handleSubmit = async () => {
@@ -170,12 +206,14 @@ export default function ExcelenciaUser() {
 
       const payload = questions.map(q => ({
         questionId: q.id,
+        optionId: selectedOptions[q.id],
         files: answers[q.id] || [],
       }));
 
       await api.post("/evaluations/submit", {
         campaignId: campaignRes.data.id,
         answers: payload,
+        source: "EXCELENCIA",
       });
 
       const cargoId = (user as any)?.cargo?.id;
@@ -248,7 +286,7 @@ export default function ExcelenciaUser() {
         <div className="max-w-3xl mx-auto">
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Programa de Excelencia</h2>
           <p className="text-slate-500 mb-8">
-            Sube la evidencia solicitada. Cada respuesta con archivos válidos suma 3 puntos.
+            Selecciona una opción para cada pregunta y sube la evidencia solicitada. El puntaje depende de la opción seleccionada.
           </p>
 
           {loading ? (
@@ -266,10 +304,81 @@ export default function ExcelenciaUser() {
                     <div className="flex-1">
                       <p className="font-medium text-slate-800 mb-2">{q.text}</p>
                       {q.description && <p className="text-sm text-slate-500 mb-4">{q.description}</p>}
-                      <p className="text-xs text-brand-600 font-medium mb-4">{q.points || 3} puntos</p>
+                      <div className="flex gap-2 items-center mb-4">
+                        <p className="text-xs text-brand-600 font-medium">Opciones con puntaje</p>
+                        {q.frequencyType && q.frequencyType !== "UNICA" && (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                            {q.frequencyType === "DIARIA" && "📅 Diaria"}
+                            {q.frequencyType === "SEMANAL" && `📆 Semanal (${q.frequencyDay ? ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][q.frequencyDay-1] : 'Lun'})`}
+                            {q.frequencyType === "MENSUAL" && `🗓️ Mensual (día ${q.frequencyDay || 1})`}
+                            {q.frequencyType === "ANUAL" && "📋 Anual"}
+                            {q.frequencyType === "DIA_ESPECIFICO" && `📅 Día ${q.frequencyDay || 1} del mes`}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* OPCIONES DE RESPUESTA */}
+                      {q.options && q.options.length > 0 && (
+                        <div className="mb-4 space-y-2">
+                          <p className="text-sm font-medium text-slate-700 mb-2">Selecciona una opción:</p>
+                          {q.options.map((option) => (
+                            <label
+                              key={option.id}
+                              className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                selectedOptions[q.id] === option.id
+                                  ? "border-brand-600 bg-brand-50"
+                                  : "border-slate-200 hover:border-brand-300"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`question-${q.id}`}
+                                checked={selectedOptions[q.id] === option.id}
+                                onChange={() => handleOptionSelect(q.id, option.id)}
+                                className="mt-0.5 text-brand-600"
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                                    {option.label}
+                                  </span>
+                                  <span className="text-sm text-slate-800">{option.text}</span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1 ml-8">Valor: {option.score} puntos</p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="space-y-4">
                         {q.configs.map((config) => {
+                          // Si es IN_SITU, mostrar mensaje especial
+                          if (config.fileType === "IN_SITU") {
+                            return (
+                              <div key={config.id} className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
+                                <div className="flex items-start gap-3">
+                                  <div className="text-2xl">📋</div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-semibold text-amber-800 mb-1">
+                                      IN SITU - Revisión Presencial
+                                    </p>
+                                    <p className="text-xs text-amber-700">
+                                      Este punto se verificará mediante revisión presencial. No se requiere subir documentos.
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-green-600">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    <span className="text-xs font-medium">Completado</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Para los demás tipos de archivo, mostrar la UI normal
                           const questionFiles = answers[q.id] || [];
                           const ofType = questionFiles.filter(f => f.fileType === config.fileType);
                           const remaining = config.maxFiles - ofType.length;
@@ -330,7 +439,7 @@ export default function ExcelenciaUser() {
                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span>Completado</span>
+                          <span>Completado (opción seleccionada + evidencia cargada)</span>
                         </div>
                       )}
                     </div>
@@ -348,7 +457,7 @@ export default function ExcelenciaUser() {
 
               {!allQuestionsComplete && (
                 <p className="text-center text-sm text-slate-500">
-                  Completa todos los archivos requeridos para poder enviar.
+                  Selecciona una opción y completa todos los archivos requeridos para poder enviar.
                 </p>
               )}
             </div>

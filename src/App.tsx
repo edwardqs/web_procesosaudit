@@ -4,8 +4,11 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Home from "./pages/Home";
 import Users from "./pages/Users";
+import Programs from "./pages/Programs";
+import MisProgramas from "./pages/MisProgramas";
 import ExcelenciaAdmin from "./pages/ExcelenciaAdmin";
 import ExcelenciaUser from "./pages/ExcelenciaUser";
+import Reports from "./pages/Reports";
 import PrivateRoute from "./components/PrivateRoute";
 import { useAuthStore } from "./stores/authStore";
 import "./index.css";
@@ -55,6 +58,33 @@ export default function App() {
           element={
             <PrivateRoute requiredRoleId={1}>
               <Users />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/programas"
+          element={
+            <PrivateRoute requiredRoleId={1}>
+              <Programs />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/mis-programas"
+          element={
+            <PrivateRoute>
+              <MisProgramas />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/reports"
+          element={
+            <PrivateRoute>
+              <Reports />
             </PrivateRoute>
           }
         />

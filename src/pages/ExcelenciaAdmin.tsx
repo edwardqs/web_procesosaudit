@@ -16,11 +16,22 @@ interface Question {
   id: number;
   text: string;
   description?: string;
-  points?: number;
+  frequencyType?: string;
+  frequencyDay?: number | null;
+  frequencyInterval?: number | null;
   order: number;
   isActive: boolean;
   configs: QuestionConfig[];
   cargos?: QuestionCargo[];
+  options?: QuestionOption[];
+}
+
+interface QuestionOption {
+  id: number;
+  label: string;
+  text: string;
+  score: number;
+  isDefault: boolean;
 }
 
 interface CampaignUser {
@@ -66,6 +77,7 @@ const FILE_TYPES = [
   { value: "PDF", label: "PDF" },
   { value: "PPT", label: "PowerPoint" },
   { value: "EXCEL", label: "Excel" },
+  { value: "IN_SITU", label: "IN SITU (Revisión presencial)" },
 ];
 
 export default function ExcelenciaAdmin() {
@@ -84,9 +96,10 @@ export default function ExcelenciaAdmin() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [formData, setFormData] = useState({ text: "", description: "", points: 3, order: 0, configs: [] as any[], cargoIds: [] as number[] });
+  const [formData, setFormData] = useState({ text: "", description: "", order: 0, configs: [] as any[], cargoIds: [] as number[], frequencyType: "UNICA" as string, frequencyDay: null as number | null, frequencyInterval: null as number | null, options: [] as Array<{ label: string; text: string; score: number }> });
   const [campaignForm, setCampaignForm] = useState({ name: "", startDate: "", endDate: "", assignedUserIds: [] as number[] });
   const [filters, setFilters] = useState({ sedeId: 0, unidadId: 0, cargoId: 0 });
+  const [activeFormTab, setActiveFormTab] = useState<"general" | "options" | "files" | "cargos">("general");
 
   useEffect(() => {
     if (activeTab === "questions") {
@@ -173,29 +186,68 @@ export default function ExcelenciaAdmin() {
     setFormData({ ...formData, configs: newConfigs });
   };
 
+  const addOption = () => {
+    const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const newLabel = labels[formData.options.length] || `${formData.options.length + 1}`;
+    setFormData({ ...formData, options: [...formData.options, { label: newLabel, text: "", score: 0 }] });
+  };
+  
+  const removeOption = (index: number) => {
+    setFormData({ ...formData, options: formData.options.filter((_, i) => i !== index) });
+  };
+  
+  const updateOption = (index: number, field: string, value: any) => {
+    const newOptions = [...formData.options];
+    newOptions[index] = { ...newOptions[index], [field]: value };
+    setFormData({ ...formData, options: newOptions });
+  };
+
   const handleSubmitQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     try {
-      const payload = { text: formData.text, description: formData.description, points: formData.points, order: formData.order, configs: formData.configs, cargoIds: formData.cargoIds };
-      console.log("Payload:", payload);
-      if (editingQuestion) await api.put(`/questions/${editingQuestion.id}`, payload);
-      else await api.post("/questions", payload);
+      const payload = {
+        text: formData.text,
+        description: formData.description,
+        order: formData.order,
+        configs: formData.configs,
+        cargoIds: formData.cargoIds,
+        frequencyType: formData.frequencyType,
+        frequencyDay: formData.frequencyDay,
+        frequencyInterval: formData.frequencyInterval,
+        options: formData.options,
+      };
+      console.log("Payload enviado:", payload);
+      if (editingQuestion) {
+        await api.put(`/questions/${editingQuestion.id}`, payload);
+        alert("✅ Pregunta actualizada correctamente");
+      } else {
+        await api.post("/questions", payload);
+        alert("✅ Pregunta creada correctamente");
+      }
       setShowModal(false);
       setEditingQuestion(null);
-      setFormData({ text: "", description: "", points: 3, order: 0, configs: [], cargoIds: [] });
+      setFormData({ text: "", description: "", order: 0, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, options: [] });
       fetchQuestions();
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error("Error al guardar pregunta:", err);
+      const errorMsg = err.response?.data?.error || err.message || "Error desconocido";
+      alert(`❌ Error al guardar: ${errorMsg}`);
+    }
   };
 
   const handleEditQuestion = (q: Question) => {
     setEditingQuestion(q);
-    setFormData({ 
-      text: q.text, 
+    setFormData({
+      text: q.text,
       description: q.description || "",
-      points: q.points || 3,
-      order: q.order, 
+      order: q.order,
       configs: q.configs.map(c => ({ fileType: c.fileType, maxFiles: c.maxFiles })),
-      cargoIds: q.cargos?.map(c => c.cargo.id) || []
+      cargoIds: q.cargos?.map(c => c.cargo.id) || [],
+      frequencyType: q.frequencyType || "UNICA",
+      frequencyDay: q.frequencyDay || null,
+      frequencyInterval: q.frequencyInterval || null,
+      options: q.options?.map(o => ({ label: o.label, text: o.text, score: o.score })) || [],
     });
     setShowModal(true);
     if (cargos.length === 0) fetchReferences();
@@ -298,16 +350,33 @@ export default function ExcelenciaAdmin() {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-semibold text-slate-800">Gestión de Preguntas</h2>
-              <button onClick={() => { setShowModal(true); setEditingQuestion(null); setFormData({ text: "", description: "", points: 3, order: questions.length + 1, configs: [], cargoIds: [] }); if (cargos.length === 0) fetchReferences(); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">+ Nueva Pregunta</button>
+              <button onClick={() => { setShowModal(true); setEditingQuestion(null); setFormData({ text: "", description: "", order: questions.length + 1, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, options: [] }); if (cargos.length === 0) fetchReferences(); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">+ Nueva Pregunta</button>
             </div>
             {loading ? <p className="text-slate-500">Cargando...</p> : questions.length === 0 ? <p className="text-slate-500">No hay preguntas.</p> : (
               <div className="space-y-4">
-                {questions.map((q, i) => (
+                {questions.map((q, i) => {
+                  const freqLabels: Record<string, string> = {
+                    UNICA: "",
+                    DIARIA: "📅 Diaria",
+                    SEMANAL: "📆 Semanal",
+                    MENSUAL: "🗓️ Mensual",
+                    ANUAL: "📋 Anual",
+                    DIA_ESPECIFICO: `📅 Día ${q.frequencyDay || 1}`,
+                  };
+                  const freqLabel = freqLabels[q.frequencyType || "UNICA"] || "";
+
+                  return (
                   <div key={q.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
                     <div>
                       <p className="font-medium text-slate-800">{i + 1}. {q.text}</p>
                       {q.description && <p className="text-sm text-slate-500 mt-1">{q.description}</p>}
-                      <p className="text-sm text-slate-500 mt-1">Puntaje: {q.points} pts | Archivos: {q.configs.map(c => `${c.fileType} (${c.maxFiles})`).join(", ")}</p>
+                      <p className="text-sm text-slate-500 mt-1">Opciones: {q.options?.length || 0} | Archivos: {q.configs.map(c => `${c.fileType} (${c.maxFiles})`).join(", ")}</p>
+                      {q.options && q.options.length > 0 && (
+                        <div className="text-xs text-slate-400 mt-1">
+                          {q.options.map(o => `${o.label}=${o.score}pts`).join(", ")}
+                        </div>
+                      )}
+                      {freqLabel && <p className="text-xs text-brand-600 mt-1">{freqLabel}</p>}
                       {q.cargos && q.cargos.length > 0 && (
                         <p className="text-xs text-slate-400 mt-1">Cargos: {q.cargos.map(c => c.cargo.name).join(", ")}</p>
                       )}
@@ -317,7 +386,7 @@ export default function ExcelenciaAdmin() {
                       <button onClick={() => handleDeleteQuestion(q.id)} className="text-red-600 hover:text-red-700">Eliminar</button>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>
@@ -459,70 +528,393 @@ export default function ExcelenciaAdmin() {
 
         {showModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-bold text-slate-800 mb-6">{editingQuestion ? "Editar Pregunta" : "Nueva Pregunta"}</h3>
-              <form onSubmit={handleSubmitQuestion} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Pregunta</label>
-                    <textarea value={formData.text} onChange={(e) => setFormData({ ...formData, text: e.target.value })} className="w-full px-4 py-2 border border-slate-200 rounded-lg" rows={3} required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Descripción (opcional)</label>
-                    <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full px-4 py-2 border border-slate-200 rounded-lg" rows={2} />
-                  </div>
+            <form onSubmit={handleSubmitQuestion}>
+            <div className="bg-white rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-xl font-bold text-slate-800">
+                  {editingQuestion ? "✏️ Editar Pregunta" : "➕ Nueva Pregunta"}
+                </h3>
+              </div>
+
+              {/* Content with tabs */}
+              <div className="flex-1 overflow-y-auto">
+                {/* Tabs Navigation */}
+                <div className="flex border-b border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormTab("general")}
+                    className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                      activeFormTab === "general"
+                        ? "border-b-2 border-brand-600 text-brand-600 bg-brand-50"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    📝 Información General
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormTab("options")}
+                    className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                      activeFormTab === "options"
+                        ? "border-b-2 border-brand-600 text-brand-600 bg-brand-50"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    🎯 Opciones de Respuesta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormTab("files")}
+                    className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                      activeFormTab === "files"
+                        ? "border-b-2 border-brand-600 text-brand-600 bg-brand-50"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    📎 Archivos Requeridos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFormTab("cargos")}
+                    className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                      activeFormTab === "cargos"
+                        ? "border-b-2 border-brand-600 text-brand-600 bg-brand-50"
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    👥 Asignación a Cargos
+                  </button>
                 </div>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Puntaje</label>
-                      <input type="number" min={1} max={100} value={formData.points} onChange={(e) => setFormData({ ...formData, points: parseInt(e.target.value) })} className="w-full px-4 py-2 border border-slate-200 rounded-lg" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Orden</label>
-                      <input type="number" value={formData.order} onChange={(e) => setFormData({ ...formData, order: parseInt(e.target.value) })} className="w-full px-4 py-2 border border-slate-200 rounded-lg" />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="block text-sm font-medium text-slate-700">Archivos requeridos</label>
-                      <button type="button" onClick={addConfig} className="text-sm text-brand-600 hover:text-brand-700">+ Agregar tipo</button>
-                    </div>
-                    {formData.configs.length === 0 ? <p className="text-sm text-slate-400 italic">Sin archivos</p> : (
-                      <div className="space-y-2">
-                        {formData.configs.map((config, index) => (
-                          <div key={index} className="flex gap-2 items-center">
-                            <select value={config.fileType} onChange={(e) => updateConfig(index, "fileType", e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                              {FILE_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-                            </select>
-                            <input type="number" min={1} max={10} value={config.maxFiles} onChange={(e) => updateConfig(index, "maxFiles", parseInt(e.target.value))} className="w-20 px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Cant" />
-                            <button type="button" onClick={() => removeConfig(index)} className="text-red-500 hover:text-red-700">×</button>
-                          </div>
-                        ))}
+
+                {/* Tab Content */}
+                <div className="p-6">
+                  {/* TAB: General Info */}
+                  {activeFormTab === "general" && (
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Pregunta <span className="text-red-500">*</span>
+                        </label>
+                        <textarea
+                          value={formData.text}
+                          onChange={(e) => setFormData({ ...formData, text: e.target.value })}
+                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 transition-all"
+                          rows={4}
+                          placeholder="Escribe aquí el texto de la pregunta..."
+                          required
+                        />
                       </div>
-                    )}
-                  </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Descripción <span className="text-slate-400 font-normal">(opcional)</span>
+                        </label>
+                        <textarea
+                          value={formData.description}
+                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 transition-all"
+                          rows={3}
+                          placeholder="Información adicional o contexto para la pregunta..."
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">
+                            Orden de aparición
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={formData.order}
+                            onChange={(e) => setFormData({ ...formData, order: parseInt(e.target.value) })}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border-t-2 border-slate-200 pt-6">
+                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                          📅 Frecuencia de respuesta
+                        </label>
+                        <select
+                          value={formData.frequencyType}
+                          onChange={(e) => setFormData({ ...formData, frequencyType: e.target.value, frequencyDay: null, frequencyInterval: null })}
+                          className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 mb-4"
+                        >
+                          <option value="UNICA">🔹 Una sola vez</option>
+                          <option value="DIARIA">📅 Diaria</option>
+                          <option value="SEMANAL">📆 Semanal</option>
+                          <option value="MENSUAL">🗓️ Mensual</option>
+                          <option value="ANUAL">📋 Anual</option>
+                          <option value="DIA_ESPECIFICO">📌 Día específico del mes</option>
+                        </select>
+
+                        {formData.frequencyType === "SEMANAL" && (
+                          <div className="grid grid-cols-2 gap-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Día de la semana</label>
+                              <select value={formData.frequencyDay || 1} onChange={(e) => setFormData({ ...formData, frequencyDay: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm">
+                                <option value={1}>Lunes</option>
+                                <option value={2}>Martes</option>
+                                <option value={3}>Miércoles</option>
+                                <option value={4}>Jueves</option>
+                                <option value={5}>Viernes</option>
+                                <option value={6}>Sábado</option>
+                                <option value={7}>Domingo</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Cada cuántas semanas</label>
+                              <input type="number" min={1} max={12} value={formData.frequencyInterval || 1} onChange={(e) => setFormData({ ...formData, frequencyInterval: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm" />
+                            </div>
+                          </div>
+                        )}
+
+                        {formData.frequencyType === "MENSUAL" && (
+                          <div className="grid grid-cols-2 gap-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Día del mes</label>
+                              <input type="number" min={1} max={31} value={formData.frequencyDay || 1} onChange={(e) => setFormData({ ...formData, frequencyDay: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Cada cuántos meses</label>
+                              <input type="number" min={1} max={12} value={formData.frequencyInterval || 1} onChange={(e) => setFormData({ ...formData, frequencyInterval: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm" />
+                            </div>
+                          </div>
+                        )}
+
+                        {formData.frequencyType === "DIA_ESPECIFICO" && (
+                          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Día específico del mes</label>
+                            <input type="number" min={1} max={31} value={formData.frequencyDay || 1} onChange={(e) => setFormData({ ...formData, frequencyDay: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB: Options */}
+                  {activeFormTab === "options" && (
+                    <div className="space-y-4">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                        <p className="text-sm text-amber-800">
+                          💡 <strong>Importante:</strong> Cada opción representa una posible respuesta con su puntaje asignado.
+                          El usuario seleccionará UNA de estas opciones al responder.
+                        </p>
+                      </div>
+
+                      {formData.options.length === 0 ? (
+                        <div className="text-center py-12">
+                          <div className="text-6xl mb-4">🎯</div>
+                          <p className="text-lg font-semibold text-slate-700 mb-2">Sin opciones configuradas</p>
+                          <p className="text-sm text-slate-500 mb-4">Debes agregar al menos una opción de respuesta</p>
+                          <button
+                            type="button"
+                            onClick={addOption}
+                            className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 transition-colors font-medium"
+                          >
+                            + Agregar primera opción
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {formData.options.map((option, index) => (
+                            <div key={index} className="border-2 border-slate-200 rounded-lg p-4 hover:border-brand-300 transition-colors bg-gradient-to-r from-white to-slate-50">
+                              <div className="flex gap-4 items-start">
+                                <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-brand-600 text-white rounded-full flex items-center justify-center text-base font-bold flex-shrink-0 shadow-lg">
+                                  {option.label}
+                                </div>
+                                <div className="flex-1 space-y-3">
+                                  <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Texto de la opción</label>
+                                    <input
+                                      type="text"
+                                      value={option.text}
+                                      onChange={(e) => updateOption(index, "text", e.target.value)}
+                                      placeholder="Describe esta opción de respuesta..."
+                                      className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 text-sm"
+                                      required
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                                      Puntaje asignado
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      value={option.score}
+                                      onChange={(e) => updateOption(index, "score", parseInt(e.target.value) || 0)}
+                                      className="w-32 px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 text-sm font-semibold"
+                                      required
+                                    />
+                                    <span className="text-xs text-slate-500 ml-2">puntos</span>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeOption(index)}
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                                  title="Eliminar opción"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                          <button
+                            type="button"
+                            onClick={addOption}
+                            className="w-full py-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-brand-500 hover:text-brand-600 transition-colors font-medium"
+                          >
+                            + Agregar otra opción
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB: Files */}
+                  {activeFormTab === "files" && (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                        <p className="text-sm text-blue-800">
+                          📎 <strong>Evidencia requerida:</strong> Configura qué tipos de archivos deben subir los usuarios como evidencia.
+                        </p>
+                      </div>
+
+                      {formData.configs.length === 0 ? (
+                        <div className="text-center py-12">
+                          <div className="text-6xl mb-4">📁</div>
+                          <p className="text-lg font-semibold text-slate-700 mb-2">Sin archivos configurados</p>
+                          <p className="text-sm text-slate-500 mb-4">Agrega al menos un tipo de archivo requerido</p>
+                          <button
+                            type="button"
+                            onClick={addConfig}
+                            className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 transition-colors font-medium"
+                          >
+                            + Agregar primer tipo de archivo
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {formData.configs.map((config, index) => (
+                            <div key={index} className="border-2 border-slate-200 rounded-lg p-4 hover:border-brand-300 transition-colors">
+                              <div className="flex gap-3 items-center">
+                                <div className="flex-1">
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de archivo</label>
+                                  <select
+                                    value={config.fileType}
+                                    onChange={(e) => updateConfig(index, "fileType", e.target.value)}
+                                    className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 text-sm"
+                                  >
+                                    {FILE_TYPES.map(ft => (
+                                      <option key={ft.value} value={ft.value}>{ft.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="w-32">
+                                  <label className="block text-xs font-semibold text-slate-600 mb-1">Cantidad</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={10}
+                                    value={config.maxFiles}
+                                    onChange={(e) => updateConfig(index, "maxFiles", parseInt(e.target.value))}
+                                    className="w-full px-4 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200 text-sm"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeConfig(index)}
+                                  className="mt-7 text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                                  title="Eliminar configuración"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                          <button
+                            type="button"
+                            onClick={addConfig}
+                            className="w-full py-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-brand-500 hover:text-brand-600 transition-colors font-medium"
+                          >
+                            + Agregar otro tipo de archivo
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB: Cargos */}
+                  {activeFormTab === "cargos" && (
+                    <div className="space-y-4">
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                        <p className="text-sm text-green-800">
+                          👥 <strong>Asignación:</strong> Selecciona a qué cargos se les mostrará esta pregunta.
+                          Si no seleccionas ninguno, se mostrará a todos los cargos.
+                        </p>
+                      </div>
+
+                      {cargos.length === 0 ? (
+                        <p className="text-center text-slate-500 py-8">No hay cargos configurados</p>
+                      ) : (
+                        <div className="border-2 border-slate-200 rounded-lg overflow-hidden">
+                          <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                            <span className="text-xs font-semibold text-slate-600">Cargos disponibles</span>
+                          </div>
+                          <div className="max-h-80 overflow-y-auto p-3 space-y-1">
+                            {cargos.map(c => (
+                              <label
+                                key={c.id}
+                                className="flex items-center gap-3 p-3 hover:bg-brand-50 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-brand-200"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={formData.cargoIds.includes(c.id)}
+                                  onChange={() => toggleCargo(c.id)}
+                                  className="w-5 h-5 rounded text-brand-600 border-slate-300 focus:ring-brand-500 focus:ring-2"
+                                />
+                                <span className="text-sm font-medium text-slate-700 flex-1">{c.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="md:col-span-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-medium text-slate-700">Asignar a cargos</label>
-                    <span className="text-xs text-slate-400">Opcional (dejar vacío = todos)</span>
-                  </div>
-                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
-                    {cargos.map(c => (
-                      <label key={c.id} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded cursor-pointer">
-                        <input type="checkbox" checked={formData.cargoIds.includes(c.id)} onChange={() => toggleCargo(c.id)} className="rounded text-brand-600" />
-                        <span className="text-sm">{c.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="md:col-span-2 flex gap-2 justify-end pt-4 border-t">
-                  <button type="button" onClick={() => { setShowModal(false); setEditingQuestion(null); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" disabled={formData.configs.length === 0} className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-50">{editingQuestion ? "Actualizar" : "Crear"}</button>
-                </div>
-              </form>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex gap-2 justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => { setShowModal(false); setEditingQuestion(null); }} 
+                  className="px-6 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={formData.configs.length === 0 || formData.options.length === 0} 
+                  className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                >
+                  {editingQuestion ? "💾 Guardar Cambios" : "✨ Crear Pregunta"}
+                </button>
+              </div>
             </div>
+            </form>
           </div>
         )}
 
