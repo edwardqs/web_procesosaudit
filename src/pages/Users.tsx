@@ -109,7 +109,7 @@ export default function Users() {
     if (filters.cargoId) params.append("cargoId", filters.cargoId.toString());
 
     api.get(`/users?${params}`).then((res) => {
-      const mapped = (res.data as any[]).map((u: any) => ({
+      const mapped = (res.data as Array<UserData & { role?: { id: number; name: string } }>).map((u) => ({
         ...u,
         roleId: u.role?.id,
         roleName: u.role?.name,
@@ -145,10 +145,9 @@ export default function Users() {
       
       setShowCreateModal(false);
       setCreateForm({ email: "", password: "", name: "", roleId: 2, sedeId: null, unidadId: null, cargoId: null });
-    } catch (err: any) {
-      console.error("Error al crear usuario:", err);
-      const errorMsg = err.response?.data?.error || "Error al crear usuario";
-      setCreateError(errorMsg);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setCreateError(axiosErr.response?.data?.error || "Error al crear usuario");
     } finally {
       setCreating(false);
     }
@@ -179,7 +178,7 @@ export default function Users() {
     setSaving(true);
     setEditError("");
     try {
-      const updateData: any = {
+      const updateData: Record<string, string | number | null> = {
         name: editForm.name,
         roleId: editForm.roleId,
         sedeId: editForm.sedeId,
@@ -202,8 +201,9 @@ export default function Users() {
         cargo: updated.cargo,
       } : u));
       setEditingId(null);
-    } catch (err: any) {
-      setEditError(err.response?.data?.error || "Error al actualizar usuario");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setEditError(axiosErr.response?.data?.error || "Error al actualizar usuario");
     } finally {
       setSaving(false);
     }
@@ -223,8 +223,8 @@ export default function Users() {
       setUsers(users.filter(u => u.id !== userToDelete.id));
       setShowDeleteModal(false);
       setUserToDelete(null);
-    } catch (err: any) {
-      console.error(err);
+    } catch {
+      alert("Error al eliminar usuario");
     } finally {
       setDeletingId(null);
     }
@@ -242,8 +242,8 @@ export default function Users() {
       setAssignedPrograms(res.data.assigned || []);
       setAvailablePrograms(res.data.available || []);
       setSelectedProgramIds((res.data.assigned || []).map((p: Program) => p.id));
-    } catch (err) {
-      console.error("Error al obtener programas:", err);
+    } catch {
+      alert("Error al obtener programas");
     } finally {
       setProgramsLoading(false);
     }
@@ -270,9 +270,9 @@ export default function Users() {
       
       setShowProgramsModal(false);
       setProgramsUserId(null);
-    } catch (err: any) {
-      console.error("Error al guardar programas:", err);
-      alert(err.response?.data?.error || "Error al guardar programas");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      alert(axiosErr.response?.data?.error || "Error al guardar programas");
     } finally {
       setSavingPrograms(false);
     }

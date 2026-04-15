@@ -64,7 +64,7 @@ export default function ExcelenciaUser() {
 
   const fetchData = async () => {
     try {
-      const cargoId = (user as any)?.cargo?.id;
+      const cargoId = user?.cargo?.id;
       const qRes = await api.get(cargoId ? `/questions?cargoId=${cargoId}` : "/questions");
       setQuestions(qRes.data);
       
@@ -85,7 +85,7 @@ export default function ExcelenciaUser() {
       });
       setMyResult(resultRes.data.evaluation);
     } catch (err) {
-      console.error("Error fetching data:", err);
+      // silently handled — loading state covers UI
     } finally {
       setLoading(false);
     }
@@ -93,7 +93,7 @@ export default function ExcelenciaUser() {
 
   useEffect(() => {
     if (!loading) {
-      const cargoId = (user as any)?.cargo?.id;
+      const cargoId = user?.cargo?.id;
       const draftData: { [questionId: number]: { files: AnswerFile[]; optionId: number | null } } = {};
       Object.keys(answers).forEach(qId => {
         draftData[parseInt(qId)] = {
@@ -154,7 +154,6 @@ export default function ExcelenciaUser() {
           fileUrl: res.data.fileUrl,
         });
       } catch (err) {
-        console.error("Error subiendo archivo:", err);
         alert(`No se pudo subir ${file.name}`);
       }
     }
@@ -216,14 +215,14 @@ export default function ExcelenciaUser() {
         source: "EXCELENCIA",
       });
 
-      const cargoId = (user as any)?.cargo?.id;
+      const cargoId = user?.cargo?.id;
       localStorage.removeItem(`pauser_answers_draft_${cargoId || 'normal'}`);
       
       alert("¡Evaluación enviada exitosamente!");
       fetchData();
-    } catch (err: any) {
-      console.error("Error submitting evaluation:", err);
-      const errorMessage = err.response?.data?.error || err.message || "Error al enviar evaluación";
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = axiosErr.response?.data?.error || axiosErr.message || "Error al enviar evaluación";
       alert(errorMessage);
     } finally {
       setSubmitting(false);

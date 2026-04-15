@@ -70,10 +70,9 @@ export default function Programs() {
   const fetchPrograms = () => {
     api.get("/programs")
       .then(res => {
-        console.log("Programs response:", res.data);
         setPrograms(res.data);
       })
-      .catch(err => console.error("Error fetching programs:", err))
+      .catch(() => {})
       .finally(() => setLoading(false));
   };
 
@@ -108,8 +107,9 @@ export default function Programs() {
       }
       setShowModal(false);
       fetchPrograms();
-    } catch (err: any) {
-      setFormError(err.response?.data?.error || "Error al guardar");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setFormError(axiosErr.response?.data?.error || "Error al guardar");
     } finally {
       setSaving(false);
     }
@@ -128,8 +128,8 @@ export default function Programs() {
       await api.delete(`/programs/${programToDelete.id}`);
       setShowDeleteModal(false);
       fetchPrograms();
-    } catch (err: any) {
-      console.error(err);
+    } catch {
+      alert("Error al eliminar programa");
     } finally {
       setDeleting(false);
     }
@@ -148,11 +148,10 @@ export default function Programs() {
     // Cargar usuarios ya asignados
     try {
       const res = await api.get(`/programs/${p.id}/users`);
-      const assignedIds = res.data.map((u: any) => u.id);
+      const assignedIds = res.data.map((u: { id: number }) => u.id);
       setAssignedUserIds(assignedIds);
-      setSelectedUsers(assignedIds); // Pre-seleccionar los ya asignados
-    } catch (err) {
-      console.error("Error al cargar usuarios asignados:", err);
+      setSelectedUsers(assignedIds);
+    } catch {
       setAssignedUserIds([]);
     } finally {
       setLoadingAssigned(false);
@@ -193,8 +192,9 @@ export default function Programs() {
         // Actualizar lista de asignados
         setAssignedUserIds(selectedUsers);
       }
-    } catch (err: any) {
-      setAssignResult("❌ " + (err.response?.data?.error || "Error al guardar cambios"));
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setAssignResult("❌ " + (axiosErr.response?.data?.error || "Error al guardar cambios"));
     } finally {
       setAssigning(false);
     }
@@ -212,8 +212,8 @@ export default function Programs() {
         api.get(`/programs/${p.id}/questions`),
       ]);
       setAllQuestions(qRes.data);
-      setAssignedQuestionIds(pqRes.data.map((q: any) => q.id));
-      setSelectedQuestionIds(pqRes.data.map((q: any) => q.id));
+      setAssignedQuestionIds(pqRes.data.map((q: { id: number }) => q.id));
+      setSelectedQuestionIds(pqRes.data.map((q: { id: number }) => q.id));
     } catch {
       setAllQuestions([]);
       setAssignedQuestionIds([]);
@@ -243,8 +243,9 @@ export default function Programs() {
       setQuestionsMessage("✅ Preguntas actualizadas");
       setAssignedQuestionIds(selectedQuestionIds);
       fetchPrograms();
-    } catch (err: any) {
-      setQuestionsMessage("❌ " + (err.response?.data?.error || "Error al guardar"));
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      setQuestionsMessage("❌ " + (axiosErr.response?.data?.error || "Error al guardar"));
     } finally {
       setSavingQuestions(false);
     }

@@ -85,7 +85,7 @@ export default function MisProgramas() {
       const res = await api.get("/programs/my-programs");
       setPrograms(res.data);
     } catch (err) {
-      console.error("Error fetching programs:", err);
+      // silently handled
     } finally {
       setLoading(false);
     }
@@ -118,7 +118,7 @@ export default function MisProgramas() {
         setSelectedOptions(initialOptions);
       }
     } catch (err) {
-      console.error("Error fetching data:", err);
+      // silently handled
     }
   };
 
@@ -184,7 +184,6 @@ export default function MisProgramas() {
           fileUrl: res.data.fileUrl,
         });
       } catch (err) {
-        console.error("Error subiendo archivo:", err);
         alert(`No se pudo subir ${file.name}`);
       }
     }
@@ -249,9 +248,9 @@ export default function MisProgramas() {
 
       alert("¡Evaluación de Mis Programas enviada exitosamente!");
       fetchData();
-    } catch (err: any) {
-      console.error("Error submitting evaluation:", err);
-      const errorMessage = err.response?.data?.error || err.message || "Error al enviar evaluación";
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = axiosErr.response?.data?.error || axiosErr.message || "Error al enviar evaluación";
       alert(errorMessage);
     } finally {
       setSubmitting(false);

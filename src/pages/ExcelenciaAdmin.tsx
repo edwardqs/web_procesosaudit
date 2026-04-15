@@ -46,8 +46,8 @@ interface Campaign {
   isActive: boolean;
   assignedUsers: CampaignUser[];
   stats?: { totalAssigned: number; completed: number; pending: number };
-  evaluations?: any[];
-  pendingUsers?: { id: number; email: string; name: string }[];
+  evaluations?: CampaignEvaluation[];
+  pendingUsers?: PendingUser[];
 }
 
 interface Result {
@@ -72,6 +72,30 @@ interface Sede { id: number; name: string; }
 interface UnidadNegocio { id: number; name: string; }
 interface Cargo { id: number; name: string; }
 
+interface ProgressEntry {
+  userId: number;
+  userName: string;
+  cargo: string;
+  percentage: number;
+  answered: number;
+  totalQuestions: number;
+  completedAt: string | null;
+}
+
+interface CampaignEvaluation {
+  id: number;
+  totalScore: number;
+  maxScore: number;
+  completedAt: string | null;
+  user: { id: number; name: string; email: string };
+}
+
+interface PendingUser {
+  id: number;
+  email: string;
+  name: string;
+}
+
 const FILE_TYPES = [
   { value: "IMAGEN", label: "Imagen" },
   { value: "PDF", label: "PDF" },
@@ -90,13 +114,13 @@ export default function ExcelenciaAdmin() {
   const [results, setResults] = useState<Result[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"questions" | "campaigns" | "progress" | "results">("questions");
-  const [progressData, setProgressData] = useState<any>(null);
+  const [progressData, setProgressData] = useState<{ campaign: Campaign | null; progress: ProgressEntry[] } | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [formData, setFormData] = useState({ text: "", description: "", order: 0, configs: [] as any[], cargoIds: [] as number[], frequencyType: "UNICA" as string, frequencyDay: null as number | null, frequencyInterval: null as number | null, options: [] as Array<{ label: string; text: string; score: number }> });
+  const [formData, setFormData] = useState({ text: "", description: "", order: 0, configs: [] as Array<{ fileType: string; maxFiles: number }>, cargoIds: [] as number[], frequencyType: "UNICA" as string, frequencyDay: null as number | null, frequencyInterval: null as number | null, options: [] as Array<{ label: string; text: string; score: number }> });
   const [campaignForm, setCampaignForm] = useState({ name: "", startDate: "", endDate: "", assignedUserIds: [] as number[] });
   const [filters, setFilters] = useState({ sedeId: 0, unidadId: 0, cargoId: 0 });
   const [activeFormTab, setActiveFormTab] = useState<"general" | "options" | "files" | "cargos">("general");
@@ -120,7 +144,7 @@ export default function ExcelenciaAdmin() {
     try {
       const res = await api.get("/evaluations/progress");
       setProgressData(res.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
     finally { setLoading(false); }
   };
 
@@ -134,7 +158,7 @@ export default function ExcelenciaAdmin() {
     try {
       const res = await api.get("/questions");
       setQuestions(res.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
     finally { setLoading(false); }
   };
 
@@ -142,7 +166,7 @@ export default function ExcelenciaAdmin() {
     try {
       const res = await api.get("/campaigns");
       setCampaigns(res.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
     finally { setLoading(false); }
   };
 
@@ -154,7 +178,7 @@ export default function ExcelenciaAdmin() {
       if (filters.cargoId) params.append("cargoId", filters.cargoId.toString());
       const res = await api.get(`/users?${params}`);
       setUsers(res.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
   };
 
   const fetchReferences = async () => {
@@ -167,20 +191,20 @@ export default function ExcelenciaAdmin() {
       setSedes(sedesRes.data);
       setUnidades(unidadesRes.data);
       setCargos(cargosRes.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
   };
 
   const fetchResults = async () => {
     try {
       const res = await api.get("/evaluations/results");
       setResults(res.data);
-    } catch (err) { console.error(err); }
+    } catch { /* fetch error handled silently */ }
     finally { setLoading(false); }
   };
 
   const addConfig = () => setFormData({ ...formData, configs: [...formData.configs, { fileType: "IMAGEN", maxFiles: 1 }] });
   const removeConfig = (index: number) => setFormData({ ...formData, configs: formData.configs.filter((_, i) => i !== index) });
-  const updateConfig = (index: number, field: string, value: any) => {
+  const updateConfig = (index: number, field: string, value: string | number) => {
     const newConfigs = [...formData.configs];
     newConfigs[index] = { ...newConfigs[index], [field]: value };
     setFormData({ ...formData, configs: newConfigs });
@@ -196,7 +220,7 @@ export default function ExcelenciaAdmin() {
     setFormData({ ...formData, options: formData.options.filter((_, i) => i !== index) });
   };
   
-  const updateOption = (index: number, field: string, value: any) => {
+  const updateOption = (index: number, field: string, value: string | number) => {
     const newOptions = [...formData.options];
     newOptions[index] = { ...newOptions[index], [field]: value };
     setFormData({ ...formData, options: newOptions });
@@ -217,7 +241,6 @@ export default function ExcelenciaAdmin() {
         frequencyInterval: formData.frequencyInterval,
         options: formData.options,
       };
-      console.log("Payload enviado:", payload);
       if (editingQuestion) {
         await api.put(`/questions/${editingQuestion.id}`, payload);
         alert("✅ Pregunta actualizada correctamente");
@@ -229,9 +252,9 @@ export default function ExcelenciaAdmin() {
       setEditingQuestion(null);
       setFormData({ text: "", description: "", order: 0, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, options: [] });
       fetchQuestions();
-    } catch (err: any) {
-      console.error("Error al guardar pregunta:", err);
-      const errorMsg = err.response?.data?.error || err.message || "Error desconocido";
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMsg = axiosErr.response?.data?.error || axiosErr.message || "Error desconocido";
       alert(`❌ Error al guardar: ${errorMsg}`);
     }
   };
@@ -265,7 +288,7 @@ export default function ExcelenciaAdmin() {
   const handleDeleteQuestion = async (id: number) => {
     if (!confirm("¿Eliminar?")) return;
     try { await api.delete(`/questions/${id}`); fetchQuestions(); }
-    catch (err) { console.error(err); }
+    catch { alert("Error al eliminar pregunta"); }
   };
 
   const handleSubmitCampaign = async (e: React.FormEvent) => {
@@ -288,7 +311,7 @@ export default function ExcelenciaAdmin() {
       setEditingCampaign(null);
       setCampaignForm({ name: "", startDate: "", endDate: "", assignedUserIds: [] });
       fetchCampaigns();
-    } catch (err) { console.error(err); }
+    } catch { alert("Error al guardar campaña"); }
   };
 
   const handleEditCampaign = (campaign: Campaign) => {
@@ -297,7 +320,7 @@ export default function ExcelenciaAdmin() {
       name: campaign.name,
       startDate: campaign.startDate.split('T')[0],
       endDate: campaign.endDate.split('T')[0],
-      assignedUserIds: campaign.assignedUsers?.map((u: any) => u.user.id) || [],
+      assignedUserIds: campaign.assignedUsers?.map((u: CampaignUser) => u.user.id) || [],
     });
     setShowCampaignModal(true);
   };
@@ -307,7 +330,7 @@ export default function ExcelenciaAdmin() {
     try {
       await api.delete(`/campaigns/${id}`);
       fetchCampaigns();
-    } catch (err) { console.error(err); }
+    } catch { alert("Error al eliminar campaña"); }
   };
 
   const toggleUserAssignment = (userId: number) => {
@@ -323,7 +346,7 @@ export default function ExcelenciaAdmin() {
     try {
       const res = await api.get(`/campaigns/${campaign.id}`);
       setSelectedCampaign(res.data);
-    } catch (err) { console.error(err); }
+    } catch { alert("Error al cargar detalles de campaña"); }
   };
 
   const navigate = useNavigate();
@@ -462,7 +485,7 @@ export default function ExcelenciaAdmin() {
               <p className="text-slate-500">No hay usuarios asignados a esta campaña</p>
             ) : (
               <div className="space-y-4">
-                {progressData.progress.map((p: any) => (
+                {progressData.progress.map((p: ProgressEntry) => (
                   <div key={p.userId} className="p-4 bg-slate-50 rounded-xl">
                     <div className="flex items-center justify-between mb-2">
                       <div>
@@ -940,10 +963,10 @@ export default function ExcelenciaAdmin() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Asignar usuarios (filtrados)</label>
                   <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-2">
-                    {users.filter((u: any) => u.role?.name !== "admin").length === 0 ? (
+                    {users.filter((u: User) => u.role?.name !== "admin").length === 0 ? (
                       <p className="text-sm text-slate-400">No hay usuarios con los filtros seleccionados</p>
                     ) : (
-                      users.filter((u: any) => u.role?.name !== "admin").map((user: any) => (
+                      users.filter((u: User) => u.role?.name !== "admin").map((user: User) => (
                         <label key={user.id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded">
                           <input type="checkbox" checked={campaignForm.assignedUserIds.includes(user.id)} onChange={() => toggleUserAssignment(user.id)} className="rounded text-brand-600" />
                           <span className="text-sm">{user.name || user.email}</span>
@@ -978,7 +1001,7 @@ export default function ExcelenciaAdmin() {
                   <div>
                     <h4 className="font-medium text-slate-700 mb-2">Pendientes ({selectedCampaign.pendingUsers.length})</h4>
                     <div className="space-y-1">
-                      {selectedCampaign.pendingUsers.map((u: any) => (
+                      {selectedCampaign.pendingUsers.map((u: PendingUser) => (
                         <p key={u.id} className="text-sm text-slate-500">{u.name || u.email}</p>
                       ))}
                     </div>
@@ -988,7 +1011,7 @@ export default function ExcelenciaAdmin() {
                   <div>
                     <h4 className="font-medium text-slate-700 mb-2">Completados ({selectedCampaign.evaluations.length})</h4>
                     <div className="space-y-2">
-                      {selectedCampaign.evaluations.map((e: any) => (
+                      {selectedCampaign.evaluations.map((e: CampaignEvaluation) => (
                         <div key={e.id} className="flex justify-between items-center p-2 bg-slate-50 rounded">
                           <span className="text-sm">{e.user.name || e.user.email}</span>
                           <span className="text-sm font-medium text-brand-600">{e.totalScore}/{e.maxScore}</span>

@@ -91,7 +91,7 @@ export default function Reports() {
       });
       setData(res.data);
     } catch (err) {
-      console.error("Error fetching reports:", err);
+      // silently handled — loading state covers UI
     } finally {
       setLoading(false);
     }
@@ -125,7 +125,7 @@ export default function Reports() {
   ].filter(d => d.value > 0);
 
   // Datos para histórico (línea)
-  const historyChartData = (data?.history || []).map((h: any) => ({
+  const historyChartData = (data?.history || []).map((h: HistoryEntry) => ({
     month: new Date(h.month).toLocaleDateString("es-ES", { month: "short" }),
     source: h.source === "EXCELENCIA" ? "Excelencia" : "Mis Programas",
     score: Number(h.avg_score),

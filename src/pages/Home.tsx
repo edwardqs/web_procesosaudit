@@ -33,9 +33,9 @@ export default function Home() {
 
     if (user) {
       setForm({
-        sedeId: (user as any)?.sede?.id || 0,
-        unidadId: (user as any)?.unidadNegocio?.id || 0,
-        cargoId: (user as any)?.cargo?.id || 0,
+        sedeId: user?.sede?.id || 0,
+        unidadId: user?.unidadNegocio?.id || 0,
+        cargoId: user?.cargo?.id || 0,
       });
     }
   }, [user]);
@@ -46,8 +46,8 @@ export default function Home() {
       const res = await api.put("/users/profile", form);
       setUser(res.data);
       setEditing(false);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      alert("Error al guardar perfil");
     } finally {
       setSaving(false);
     }
@@ -168,15 +168,15 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Sede</p>
-                <p className="text-base font-semibold text-slate-900">{(user as any)?.sede?.name || "No asignado"}</p>
+                <p className="text-base font-semibold text-slate-900">{user?.sede?.name || "No asignado"}</p>
               </div>
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Unidad de Negocio</p>
-                <p className="text-base font-semibold text-slate-900">{(user as any)?.unidadNegocio?.name || "No asignado"}</p>
+                <p className="text-base font-semibold text-slate-900">{user?.unidadNegocio?.name || "No asignado"}</p>
               </div>
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Cargo</p>
-                <p className="text-base font-semibold text-slate-900">{(user as any)?.cargo?.name || "No asignado"}</p>
+                <p className="text-base font-semibold text-slate-900">{user?.cargo?.name || "No asignado"}</p>
               </div>
             </div>
           )}
