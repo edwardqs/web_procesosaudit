@@ -9,6 +9,7 @@ import MisProgramas from "./pages/MisProgramas";
 import ExcelenciaAdmin from "./pages/ExcelenciaAdmin";
 import ExcelenciaUser from "./pages/ExcelenciaUser";
 import Reports from "./pages/Reports";
+import EvaluationsAdmin from "./pages/EvaluationsAdmin";
 import PrivateRoute from "./components/PrivateRoute";
 import { useAuthStore } from "./stores/authStore";
 import "./index.css";
@@ -85,6 +86,15 @@ export default function App() {
           element={
             <PrivateRoute>
               <Reports />
+            </PrivateRoute>
+          }
+        />
+
+        <Route
+          path="/evaluaciones"
+          element={
+            <PrivateRoute requiredRoleId={1}>
+              <EvaluationsAdmin />
             </PrivateRoute>
           }
         />

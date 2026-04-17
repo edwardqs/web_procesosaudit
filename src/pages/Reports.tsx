@@ -112,7 +112,7 @@ export default function Reports() {
     ? [
         {
           name: "Puntaje",
-          Excelencia: data.current.excelencia?.totalScore || 0,
+          "Autoevaluación": data.current.excelencia?.totalScore || 0,
           "Mis Programas": data.current.misProgramas?.totalScore || 0,
         },
       ]
@@ -120,25 +120,25 @@ export default function Reports() {
 
   // Datos para gráfico circular (porcentajes)
   const pieData = [
-    { name: "Excelencia", value: data?.current.excelencia?.percentage || 0, fill: SOURCE_COLORS.EXCELENCIA },
+    { name: "Autoevaluación", value: data?.current.excelencia?.percentage || 0, fill: SOURCE_COLORS.EXCELENCIA },
     { name: "Mis Programas", value: data?.current.misProgramas?.percentage || 0, fill: SOURCE_COLORS.MIS_PROGRAMAS },
   ].filter(d => d.value > 0);
 
   // Datos para histórico (línea)
   const historyChartData = (data?.history || []).map((h: HistoryEntry) => ({
     month: new Date(h.month).toLocaleDateString("es-ES", { month: "short" }),
-    source: h.source === "EXCELENCIA" ? "Excelencia" : "Mis Programas",
+    source: h.source === "EXCELENCIA" ? "Autoevaluación" : "Mis Programas",
     score: Number(h.avg_score),
     max: Number(h.max_score),
   }));
 
   // Agrupar histórico por mes para gráfico de líneas
-  const groupedHistory: Record<string, { Excelencia: number; "Mis Programas": number }> = {};
+  const groupedHistory: Record<string, { "Autoevaluación": number; "Mis Programas": number }> = {};
   historyChartData.forEach(h => {
     if (!groupedHistory[h.month]) {
-      groupedHistory[h.month] = { Excelencia: 0, "Mis Programas": 0 };
+      groupedHistory[h.month] = { "Autoevaluación": 0, "Mis Programas": 0 };
     }
-    groupedHistory[h.month][h.source as "Excelencia" | "Mis Programas"] = h.score;
+    groupedHistory[h.month][h.source as "Autoevaluación" | "Mis Programas"] = h.score;
   });
   const lineChartData = Object.entries(groupedHistory).map(([month, scores]) => ({
     month,
@@ -148,7 +148,7 @@ export default function Reports() {
   // Datos por cargo (admin)
   const cargoBarData = (data?.cargoStats || []).map(c => ({
     cargo: c.cargo.length > 20 ? c.cargo.slice(0, 20) + "..." : c.cargo,
-    Excelencia: c.excelencia.avg,
+    "Autoevaluación": c.excelencia.avg,
     "Mis Programas": c.misProgramas.avg,
   }));
 
@@ -211,7 +211,7 @@ export default function Reports() {
                 {/* Cards resumen */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <p className="text-sm text-slate-500 mb-1">Programa de Excelencia</p>
+                    <p className="text-sm text-slate-500 mb-1">Autoevaluación Mensual</p>
                     <p className="text-3xl font-bold text-blue-600">
                       {data.current.excelencia?.totalScore || "-"}
                     </p>
@@ -254,7 +254,7 @@ export default function Reports() {
                       {data.difference !== null ? `${data.difference > 0 ? "+" : ""}${data.difference}` : "-"}
                     </p>
                     <p className="text-sm text-slate-400">
-                      Excelencia vs Mis Programas
+                      Autoevaluación vs Mis Programas
                     </p>
                   </div>
                 </div>
@@ -270,7 +270,7 @@ export default function Reports() {
                         <YAxis />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="Excelencia" fill={SOURCE_COLORS.EXCELENCIA} radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="Autoevaluación" fill={SOURCE_COLORS.EXCELENCIA} radius={[8, 8, 0, 0]} />
                         <Bar dataKey="Mis Programas" fill={SOURCE_COLORS.MIS_PROGRAMAS} radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -314,7 +314,7 @@ export default function Reports() {
                         <YAxis type="category" dataKey="cargo" width={150} />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="Excelencia" fill={SOURCE_COLORS.EXCELENCIA} radius={[0, 8, 8, 0]} />
+                        <Bar dataKey="Autoevaluación" fill={SOURCE_COLORS.EXCELENCIA} radius={[0, 8, 8, 0]} />
                         <Bar dataKey="Mis Programas" fill={SOURCE_COLORS.MIS_PROGRAMAS} radius={[0, 8, 8, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -328,7 +328,7 @@ export default function Reports() {
               <div className="space-y-6">
                 {data.current.excelencia?.questions && data.current.excelencia.questions.length > 0 && (
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="text-lg font-semibold text-slate-800 mb-4">Detalle por Pregunta - Excelencia</h3>
+                    <h3 className="text-lg font-semibold text-slate-800 mb-4">Detalle por Pregunta - Autoevaluación Mensual</h3>
                     <div className="space-y-3">
                       {data.current.excelencia.questions.map((q, i) => (
                         <div key={q.questionId} className="p-4 bg-slate-50 rounded-xl">
@@ -418,7 +418,7 @@ export default function Reports() {
                       <Legend />
                       <Line
                         type="monotone"
-                        dataKey="Excelencia"
+                        dataKey="Autoevaluación"
                         stroke={SOURCE_COLORS.EXCELENCIA}
                         strokeWidth={3}
                         dot={{ r: 5 }}

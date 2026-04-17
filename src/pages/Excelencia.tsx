@@ -44,7 +44,7 @@ export default function Excelencia() {
             </div>
 
             <h1 className="text-3xl font-bold text-slate-900 mb-3">
-              Bienvenido al Programa de Excelencia
+              Bienvenido a la Autoevaluación Mensual
             </h1>
             <p className="text-slate-500 text-base leading-relaxed mb-10 max-w-md mx-auto">
               Este modulo esta en desarrollo. Pronto podras acceder a las herramientas de autoevaluacion y mejora continua institucional.

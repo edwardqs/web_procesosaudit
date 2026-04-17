@@ -35,6 +35,39 @@ interface AnswerFile {
   fileUrl: string;
 }
 
+interface PeriodData {
+  id: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+  optionId: number | null;
+  optionLabel: string | null;
+  awardedScore: number;
+  hasEvidence: boolean;
+  files: AnswerFile[];
+}
+
+interface QuestionHistory {
+  id: number;
+  text: string;
+  frequencyType: string;
+  points: number;
+  periods: PeriodData[];
+  totalAuto: number;
+  adminScore: number | null;
+  adminComment: string | null;
+  adminReviewedAt: string | null;
+  reviewedBy: { id: number; name: string } | null;
+}
+
+interface HistoryEvaluation {
+  id: number;
+  source: string;
+  totalScore: number;
+  maxScore: number;
+  completedAt: string;
+  questions: QuestionHistory[];
+}
+
 interface EvaluationResult {
   id: number;
   totalScore: number;
@@ -56,6 +89,9 @@ export default function ExcelenciaUser() {
   const [selectedOptions, setSelectedOptions] = useState<{ [questionId: number]: number | null }>({});
   const [submitting, setSubmitting] = useState(false);
   const [myResult, setMyResult] = useState<EvaluationResult | null>(null);
+  const [myHistory, setMyHistory] = useState<HistoryEvaluation[]>([]);
+  const [questionAvailability, setQuestionAvailability] = useState<{ [qId: number]: { available: boolean; isComplete: boolean; currentPeriod: { periodStart: string; periodEnd: string } | null } }>({});
+  const [campaignMessage, setCampaignMessage] = useState<string | null>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement }>({});
 
   useEffect(() => {
@@ -65,9 +101,27 @@ export default function ExcelenciaUser() {
   const fetchData = async () => {
     try {
       const cargoId = user?.cargo?.id;
-      const qRes = await api.get(cargoId ? `/questions?cargoId=${cargoId}` : "/questions");
+      const qRes = await api.get(cargoId ? `/questions?cargoId=${cargoId}&targetType=EXCELENCIA` : "/questions?targetType=EXCELENCIA");
       setQuestions(qRes.data);
       
+      const availRes = await api.get("/evaluations/question-availability", {
+        params: { source: "EXCELENCIA" },
+      });
+      
+      if (availRes.data.message) {
+        setCampaignMessage(availRes.data.message);
+      }
+      
+      const availMap: { [qId: number]: { available: boolean; isComplete: boolean; currentPeriod: { periodStart: string; periodEnd: string } | null } } = {};
+      availRes.data.questions?.forEach((q: any) => {
+        availMap[q.id] = {
+          available: q.available,
+          isComplete: q.isComplete,
+          currentPeriod: q.currentPeriod,
+        };
+      });
+      setQuestionAvailability(availMap);
+
       const initialAnswers: { [questionId: number]: AnswerFile[] } = {};
       const initialOptions: { [questionId: number]: number | null } = {};
       const draftStr = localStorage.getItem(`pauser_answers_draft_${cargoId || 'normal'}`);
@@ -84,6 +138,11 @@ export default function ExcelenciaUser() {
         params: { source: "EXCELENCIA" },
       });
       setMyResult(resultRes.data.evaluation);
+
+      const historyRes = await api.get("/evaluations/my-history", {
+        params: { source: "EXCELENCIA" },
+      });
+      setMyHistory(historyRes.data.evaluations || []);
     } catch (err) {
       // silently handled — loading state covers UI
     } finally {
@@ -229,9 +288,13 @@ export default function ExcelenciaUser() {
     }
   };
 
-  const allQuestionsComplete = questions.every(q => hasAllRequiredFiles(q));
+  const allQuestionsComplete = questions
+    .filter(q => questionAvailability[q.id]?.available !== false)
+    .every(q => hasAllRequiredFiles(q));
 
-  if (myResult?.completedAt) {
+  const hasAvailableQuestions = questions.some(q => questionAvailability[q.id]?.available && !questionAvailability[q.id]?.isComplete);
+
+  if (myResult?.completedAt && !hasAvailableQuestions) {
     const percentage = myResult.maxScore > 0 ? Math.round((myResult.totalScore / myResult.maxScore) * 100) : 0;
 
     return (
@@ -256,6 +319,29 @@ export default function ExcelenciaUser() {
               <p className="text-slate-500">puntos de {myResult.maxScore}</p>
             </div>
 
+            {(myResult as any).adminPublishedAt && (
+              <div className="mt-6 p-6 bg-brand-50 border-2 border-brand-200 rounded-xl text-left shadow-sm">
+                <h3 className="text-lg font-bold text-brand-800 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Resultado Final Oficial
+                </h3>
+                <div className="bg-white rounded-lg p-4 border border-brand-100 flex items-center justify-between mb-4">
+                  <span className="text-brand-900 font-medium">Calificación Administrador:</span>
+                  <span className="text-2xl font-black text-brand-600">{(myResult as any).adminFinalScore}</span>
+                </div>
+                {(myResult as any).adminFinalComment && (
+                  <div className="bg-white rounded-lg p-4 border border-brand-100 italic text-slate-600 text-sm">
+                    "{(myResult as any).adminFinalComment}"
+                  </div>
+                )}
+                <p className="text-xs text-brand-600/70 text-right mt-3 font-medium">
+                  Publicado el {new Date((myResult as any).adminPublishedAt).toLocaleDateString()}
+                </p>
+              </div>
+            )}
+
             <div className="w-full bg-slate-100 rounded-full h-4 mb-4">
               <div className="bg-brand-600 h-4 rounded-full transition-all" style={{ width: `${percentage}%` }} />
             </div>
@@ -263,6 +349,70 @@ export default function ExcelenciaUser() {
             <p className="text-sm text-slate-500">
               Fecha: {new Date(myResult.completedAt).toLocaleDateString()}
             </p>
+
+            {myHistory.length > 0 && (
+              <div className="mt-8 text-left">
+                <h3 className="text-lg font-bold text-slate-800 mb-4">Mi Historial</h3>
+                {myHistory.map((ev) => (
+                  <div key={ev.id} className="mt-4 border border-slate-200 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <div>
+                        <p className="font-medium text-slate-800">{ev.source}</p>
+                        <p className="text-sm text-slate-500">
+                          Puntaje automático: {ev.questions.reduce((sum, q) => sum + q.totalAuto, 0)} pts
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {ev.questions.some(q => q.adminScore !== null) && (
+                          <p className="font-bold text-amber-600">
+                            Puntaje Admin: {ev.questions.reduce((sum, q) => sum + (q.adminScore || 0), 0)} pts
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {ev.questions.filter(q => q.periods.length > 0).map((q) => (
+                      <div key={q.id} className="mt-3 p-3 bg-slate-50 rounded-lg">
+                        <div className="flex justify-between items-start">
+                          <p className="text-sm font-medium text-slate-700">{q.text}</p>
+                          <div className="text-right text-xs">
+                            <p className="text-slate-500">Auto: {q.totalAuto} pts</p>
+                            {q.adminScore !== null && (
+                              <p className="text-amber-600 font-bold">Admin: {q.adminScore} pts</p>
+                            )}
+                          </div>
+                        </div>
+                        {q.periods.length > 1 && (
+                          <div className="mt-2 text-xs text-slate-500">
+                            <p className="font-medium">Respuestas por período:</p>
+                            {q.periods.map((p, idx) => (
+                              <div key={idx} className="ml-2 mt-1">
+                                <p>
+                                  Período {idx + 1}: {p.optionLabel || "Sin respuesta"} → {p.awardedScore} pts
+                                  {p.periodStart && ` (${new Date(p.periodStart).toLocaleDateString()})`}
+                                </p>
+                                {(p as any).files && (p as any).files.length > 0 && (
+                                  <div className="ml-2 mt-1 flex flex-wrap gap-1">
+                                    {(p as any).files.map((f: any, i: number) => (
+                                      <a key={i} href={f.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded hover:bg-slate-300 transition-colors">
+                                        📎 {f.fileName.slice(0, 15)}{f.fileName.length > 15 ? '...' : ''}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {q.adminComment && (
+                          <p className="mt-2 text-xs text-amber-600 italic">"{q.adminComment}"</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <p className="mt-6 text-slate-600">
               {percentage >= 60 ? "¡Felicidades! Has completado la evaluación." : "Sigue participando en las próximas campañas."}
@@ -283,77 +433,112 @@ export default function ExcelenciaUser() {
 
       <main className="flex-1 p-6">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Programa de Excelencia</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Autoevaluación Mensual</h2>
           <p className="text-slate-500 mb-8">
             Selecciona una opción para cada pregunta y sube la evidencia solicitada. El puntaje depende de la opción seleccionada.
           </p>
 
           {loading ? (
             <p className="text-slate-500">Cargando...</p>
+          ) : campaignMessage ? (
+            <div className="bg-white rounded-2xl shadow-sm border border-brand-200 p-8 text-center text-slate-500">
+               {campaignMessage}
+            </div>
           ) : questions.length === 0 ? (
             <p className="text-slate-500">No hay preguntas disponibles en este momento.</p>
           ) : (
             <div className="space-y-6">
-              {questions.map((q, i) => (
-                <div key={q.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center font-bold shrink-0">
-                      {i + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-slate-800 mb-2">{q.text}</p>
-                      {q.description && <p className="text-sm text-slate-500 mb-4">{q.description}</p>}
-                      <div className="flex gap-2 items-center mb-4">
-                        <p className="text-xs text-brand-600 font-medium">Opciones con puntaje</p>
-                        {q.frequencyType && q.frequencyType !== "UNICA" && (
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                            {q.frequencyType === "DIARIA" && "📅 Diaria"}
-                            {q.frequencyType === "SEMANAL" && `📆 Semanal (${q.frequencyDay ? ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][q.frequencyDay-1] : 'Lun'})`}
-                            {q.frequencyType === "MENSUAL" && `🗓️ Mensual (día ${q.frequencyDay || 1})`}
-                            {q.frequencyType === "ANUAL" && "📋 Anual"}
-                            {q.frequencyType === "DIA_ESPECIFICO" && `📅 Día ${q.frequencyDay || 1} del mes`}
-                          </span>
-                        )}
+              {questions.map((q, i) => {
+                const avail = questionAvailability[q.id];
+                const isCompleted = avail?.isComplete || false;
+                const isAvailable = avail?.available !== false;
+
+                return (
+                  <div key={q.id} className={`bg-white rounded-2xl shadow-sm border p-6 ${isCompleted ? "border-green-200 bg-green-50" : "border-slate-100"}`}>
+                    <div className="flex items-start gap-4">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${isCompleted ? "bg-green-100 text-green-700" : "bg-brand-100 text-brand-700"}`}>
+                        {i + 1}
                       </div>
-
-                      {/* OPCIONES DE RESPUESTA */}
-                      {q.options && q.options.length > 0 && (
-                        <div className="mb-4 space-y-2">
-                          <p className="text-sm font-medium text-slate-700 mb-2">Selecciona una opción:</p>
-                          {q.options.map((option) => (
-                            <label
-                              key={option.id}
-                              className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                                selectedOptions[q.id] === option.id
-                                  ? "border-brand-600 bg-brand-50"
-                                  : "border-slate-200 hover:border-brand-300"
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={`question-${q.id}`}
-                                checked={selectedOptions[q.id] === option.id}
-                                onChange={() => handleOptionSelect(q.id, option.id)}
-                                className="mt-0.5 text-brand-600"
-                              />
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
-                                    {option.label}
-                                  </span>
-                                  <span className="text-sm text-slate-800">{option.text}</span>
-                                </div>
-                                <p className="text-xs text-slate-500 mt-1 ml-8">Valor: {option.score} puntos</p>
-                              </div>
-                            </label>
-                          ))}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="font-medium text-slate-800">{q.text}</p>
+                          {isCompleted && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                              Respondido
+                            </span>
+                          )}
                         </div>
-                      )}
+                        {q.description && <p className="text-sm text-slate-500 mb-4">{q.description}</p>}
+                        <div className="flex gap-2 items-center mb-4">
+                          <p className="text-xs text-brand-600 font-medium">Opciones con puntaje</p>
+                          {q.frequencyType && q.frequencyType !== "UNICA" && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                              {q.frequencyType === "DIARIA" && "📅 Diaria"}
+                              {q.frequencyType === "SEMANAL" && `📆 Semanal (${q.frequencyDay ? ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][q.frequencyDay-1] : 'Lun'})`}
+                              {q.frequencyType === "MENSUAL" && `🗓️ Mensual (día ${q.frequencyDay || 1})`}
+                              {q.frequencyType === "ANUAL" && "📋 Anual"}
+                              {q.frequencyType === "DIA_ESPECIFICO" && `📅 Día ${q.frequencyDay || 1} del mes`}
+                            </span>
+                          )}
+                          {avail?.currentPeriod && (
+                            <span className="text-xs text-slate-500">
+                              Período actual: {new Date(avail.currentPeriod.periodStart).toLocaleDateString()} - {new Date(avail.currentPeriod.periodEnd).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="space-y-4">
-                        {q.configs.map((config) => {
-                          // Si es IN_SITU, mostrar mensaje especial
-                          if (config.fileType === "IN_SITU") {
+                        {/* OPCIONES DE RESPUESTA - solo si está disponible */}
+                        {isAvailable && q.options && q.options.length > 0 && (
+                          <div className="mb-4 space-y-2">
+                            <p className="text-sm font-medium text-slate-700 mb-2">Selecciona una opción:</p>
+                            {q.options.map((option) => (
+                              <label
+                                key={option.id}
+                                className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all ${
+                                  selectedOptions[q.id] === option.id
+                                    ? "border-brand-600 bg-brand-50"
+                                    : isCompleted
+                                      ? "border-slate-100 bg-slate-50 opacity-50"
+                                      : "border-slate-200 hover:border-brand-300 cursor-pointer"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`question-${q.id}`}
+                                  checked={selectedOptions[q.id] === option.id}
+                                  onChange={() => handleOptionSelect(q.id, option.id)}
+                                  disabled={isCompleted}
+                                  className="mt-0.5 text-brand-600"
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isCompleted ? "bg-slate-300 text-slate-500" : "bg-brand-600 text-white"}`}>
+                                      {option.label}
+                                    </span>
+                                    <span className={`text-sm ${isCompleted ? "text-slate-400" : "text-slate-800"}`}>{option.text}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-1 ml-8">Valor: {option.score} puntos</p>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Si está completado, mostrar estado deshabilitado */}
+                        {isCompleted && (
+                          <div className="mt-4 p-4 bg-slate-100 rounded-lg">
+                            <p className="text-sm text-slate-600 text-center">
+                              Esta pregunta ya fue respondida en el período actual. Podrás responder nuevamente en el próximo período.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Archivos - solo si no está completado */}
+                        {!isCompleted && q.configs && q.configs.length > 0 && (
+                          <div className="space-y-4">
+                            {q.configs.map((config) => {
+                              // Si es IN_SITU, mostrar mensaje especial
+                              if (config.fileType === "IN_SITU") {
                             return (
                               <div key={config.id} className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
                                 <div className="flex items-start gap-3">
@@ -432,8 +617,9 @@ export default function ExcelenciaUser() {
                           );
                         })}
                       </div>
+                      )}
 
-                      {hasAllRequiredFiles(q) && (
+                      {hasAllRequiredFiles(q) && !isCompleted && (
                         <div className="mt-3 flex items-center gap-2 text-green-600 text-sm">
                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -444,7 +630,8 @@ export default function ExcelenciaUser() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               <button
                 onClick={handleSubmit}

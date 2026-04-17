@@ -21,6 +21,7 @@ interface Question {
   frequencyInterval?: number | null;
   order: number;
   isActive: boolean;
+  targetType?: string;
   configs: QuestionConfig[];
   cargos?: QuestionCargo[];
   options?: QuestionOption[];
@@ -120,7 +121,7 @@ export default function ExcelenciaAdmin() {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [formData, setFormData] = useState({ text: "", description: "", order: 0, configs: [] as Array<{ fileType: string; maxFiles: number }>, cargoIds: [] as number[], frequencyType: "UNICA" as string, frequencyDay: null as number | null, frequencyInterval: null as number | null, options: [] as Array<{ label: string; text: string; score: number }> });
+  const [formData, setFormData] = useState({ text: "", description: "", order: 0, configs: [] as Array<{ fileType: string; maxFiles: number }>, cargoIds: [] as number[], frequencyType: "UNICA" as string, frequencyDay: null as number | null, frequencyInterval: null as number | null, targetType: "AMBOS" as string, options: [] as Array<{ label: string; text: string; score: number }> });
   const [campaignForm, setCampaignForm] = useState({ name: "", startDate: "", endDate: "", assignedUserIds: [] as number[] });
   const [filters, setFilters] = useState({ sedeId: 0, unidadId: 0, cargoId: 0 });
   const [activeFormTab, setActiveFormTab] = useState<"general" | "options" | "files" | "cargos">("general");
@@ -239,6 +240,7 @@ export default function ExcelenciaAdmin() {
         frequencyType: formData.frequencyType,
         frequencyDay: formData.frequencyDay,
         frequencyInterval: formData.frequencyInterval,
+        targetType: formData.targetType,
         options: formData.options,
       };
       if (editingQuestion) {
@@ -250,7 +252,7 @@ export default function ExcelenciaAdmin() {
       }
       setShowModal(false);
       setEditingQuestion(null);
-      setFormData({ text: "", description: "", order: 0, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, options: [] });
+      setFormData({ text: "", description: "", order: 0, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, targetType: "AMBOS", options: [] });
       fetchQuestions();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
@@ -270,6 +272,7 @@ export default function ExcelenciaAdmin() {
       frequencyType: q.frequencyType || "UNICA",
       frequencyDay: q.frequencyDay || null,
       frequencyInterval: q.frequencyInterval || null,
+      targetType: q.targetType || "AMBOS",
       options: q.options?.map(o => ({ label: o.label, text: o.text, score: o.score })) || [],
     });
     setShowModal(true);
@@ -356,7 +359,7 @@ export default function ExcelenciaAdmin() {
     <div className="min-h-screen bg-[#f4f6f9] p-6">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">Programa de Excelencia - ADMIN</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Autoevaluación Mensual - ADMIN</h1>
           <button onClick={() => navigate("/dashboard")} className="text-slate-600 hover:text-slate-800 text-sm font-medium">
             ← Volver al Dashboard
           </button>
@@ -373,7 +376,7 @@ export default function ExcelenciaAdmin() {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-semibold text-slate-800">Gestión de Preguntas</h2>
-              <button onClick={() => { setShowModal(true); setEditingQuestion(null); setFormData({ text: "", description: "", order: questions.length + 1, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, options: [] }); if (cargos.length === 0) fetchReferences(); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">+ Nueva Pregunta</button>
+              <button onClick={() => { setShowModal(true); setEditingQuestion(null); setFormData({ text: "", description: "", order: questions.length + 1, configs: [], cargoIds: [], frequencyType: "UNICA", frequencyDay: null, frequencyInterval: null, targetType: "AMBOS", options: [] }); if (cargos.length === 0) fetchReferences(); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">+ Nueva Pregunta</button>
             </div>
             {loading ? <p className="text-slate-500">Cargando...</p> : questions.length === 0 ? <p className="text-slate-500">No hay preguntas.</p> : (
               <div className="space-y-4">
@@ -391,7 +394,16 @@ export default function ExcelenciaAdmin() {
                   return (
                   <div key={q.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
                     <div>
-                      <p className="font-medium text-slate-800">{i + 1}. {q.text}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-800">{i + 1}. {q.text}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          q.targetType === "EXCELENCIA" ? "bg-blue-100 text-blue-700" :
+                          q.targetType === "MIS_PROGRAMAS" ? "bg-purple-100 text-purple-700" :
+                          "bg-slate-100 text-slate-600"
+                        }`}>
+                          {q.targetType === "EXCELENCIA" ? "Autoevaluación" : q.targetType === "MIS_PROGRAMAS" ? "Programas" : "Ambos"}
+                        </span>
+                      </div>
                       {q.description && <p className="text-sm text-slate-500 mt-1">{q.description}</p>}
                       <p className="text-sm text-slate-500 mt-1">Opciones: {q.options?.length || 0} | Archivos: {q.configs.map(c => `${c.fileType} (${c.maxFiles})`).join(", ")}</p>
                       {q.options && q.options.length > 0 && (
@@ -714,6 +726,29 @@ export default function ExcelenciaAdmin() {
                             <input type="number" min={1} max={31} value={formData.frequencyDay || 1} onChange={(e) => setFormData({ ...formData, frequencyDay: parseInt(e.target.value) })} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg text-sm" />
                           </div>
                         )}
+
+                        <div className="mt-6">
+                          <label className="block text-sm font-semibold text-slate-700 mb-3">
+                            🎯 Tipo de evaluación
+                          </label>
+                          <select
+                            value={formData.targetType}
+                            onChange={(e) => setFormData({ ...formData, targetType: e.target.value })}
+                            className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                          >
+                            <option value="AMBOS">🔄 Ambos (Autoevaluación y Programas)</option>
+                            <option value="EXCELENCIA">📝 Solo Autoevaluación Mensual</option>
+                            <option value="MIS_PROGRAMAS">📂 Solo Mis Programas</option>
+                          </select>
+                          <p className="text-xs text-slate-500 mt-2">
+                            Selecciona cuándo debe aparecer esta pregunta:
+                          </p>
+                          <ul className="text-xs text-slate-500 mt-1 space-y-1">
+                            <li>• <strong>Autoevaluación Mensual</strong>: Solo en la autoevaluación mensual</li>
+                            <li>• <strong>Mis Programas</strong>: Solo en programas específicos</li>
+                            <li>• <strong>Ambos</strong>: Aparece en ambos flujos</li>
+                          </ul>
+                        </div>
                       </div>
                     </div>
                   )}

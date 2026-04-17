@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import api from "../services/api";
 import type { Program } from "../types";
+import ExcelConfigModal from "./ExcelConfigModal";
 
 export default function Programs() {
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -43,6 +44,7 @@ export default function Programs() {
   const [allQuestions, setAllQuestions] = useState<{
     id: number; text: string; description?: string; order: number;
     frequencyType?: string; frequencyDay?: number | null;
+    targetType?: string;
     options?: { label: string; score: number }[];
     configs?: { fileType: string; maxFiles: number }[];
     cargos?: { cargo: { id: number; name: string } }[];
@@ -51,6 +53,42 @@ export default function Programs() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
   const [savingQuestions, setSavingQuestions] = useState(false);
   const [questionsMessage, setQuestionsMessage] = useState("");
+
+  // Modal Excel Config
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelProgram, setExcelProgram] = useState<Program | null>(null);
+
+  // Modal gestionar preguntas - estados adicionales
+  const [questionsModalTab, setQuestionsModalTab] = useState<"manage" | "assign">("manage");
+  const [programQuestions, setProgramQuestions] = useState<{
+    id: number; text: string; description?: string; order: number;
+    frequencyType?: string; frequencyDay?: number | null;
+    frequencyInterval?: number | null;
+    targetType?: string;
+    options?: { id: number; label: string; text: string; score: number }[];
+    configs?: { fileType: string; maxFiles: number }[];
+  }[]>([]);
+
+  // Modal crear/editar pregunta de programa
+  const [showCreateQuestionModal, setShowCreateQuestionModal] = useState(false);
+  const [editingProgramQuestion, setEditingProgramQuestion] = useState<{
+    id: number; text: string; description?: string; order: number;
+    frequencyType?: string; frequencyDay?: number | null;
+    frequencyInterval?: number | null;
+    options?: { label: string; text: string; score: number }[];
+    configs?: { fileType: string; maxFiles: number }[];
+  } | null>(null);
+  const [activeQuestionFormTab, setActiveQuestionFormTab] = useState<"general" | "options" | "files">("general");
+  const [questionForm, setQuestionForm] = useState({
+    text: "",
+    description: "",
+    order: 0,
+    frequencyType: "UNICA" as string,
+    frequencyDay: null as number | null,
+    frequencyInterval: null as number | null,
+    configs: [] as Array<{ fileType: string; maxFiles: number }>,
+    options: [] as Array<{ label: string; text: string; score: number }>,
+  });
 
   useEffect(() => {
     fetchPrograms();
@@ -163,34 +201,46 @@ export default function Programs() {
     setAssigning(true);
     setAssignResult("");
     try {
-      // Calcular diferencias
-      const toAdd = selectedUsers.filter(id => !assignedUserIds.includes(id));
-      const toRemove = assignedUserIds.filter(id => !selectedUsers.includes(id));
+      if (assignMode === "mass") {
+        const body: any = {};
+        if (assignFilters.cargoId) body.cargoId = assignFilters.cargoId;
+        if (assignFilters.sedeId) body.sedeId = assignFilters.sedeId;
+        if (assignFilters.unidadId) body.unidadId = assignFilters.unidadId;
 
-      let messages: string[] = [];
-
-      // Agregar nuevos usuarios
-      if (toAdd.length > 0) {
-        await api.post(`/programs/${assignProgram.id}/assign-users`, {
-          userIds: toAdd,
-        });
-        messages.push(`✅ ${toAdd.length} usuario(s) agregados`);
-      }
-
-      // Quitar usuarios
-      if (toRemove.length > 0) {
-        for (const userId of toRemove) {
-          await api.delete(`/programs/${assignProgram.id}/users/${userId}`);
+        if (!body.cargoId && !body.sedeId && !body.unidadId) {
+          setAssignResult("⚠️ Selecciona al menos un filtro");
+          setAssigning(false);
+          return;
         }
-        messages.push(`❌ ${toRemove.length} usuario(s) removidos`);
-      }
 
-      if (toAdd.length === 0 && toRemove.length === 0) {
-        setAssignResult("ℹ️ No hay cambios para guardar");
+        const res = await api.post(`/programs/${assignProgram.id}/assign-users`, body);
+        setAssignResult(`✅ ${res.data.count} usuario(s) asignados`);
       } else {
-        setAssignResult(messages.join(" | "));
-        // Actualizar lista de asignados
-        setAssignedUserIds(selectedUsers);
+        const toAdd = selectedUsers.filter(id => !assignedUserIds.includes(id));
+        const toRemove = assignedUserIds.filter(id => !selectedUsers.includes(id));
+
+        let messages: string[] = [];
+
+        if (toAdd.length > 0) {
+          await api.post(`/programs/${assignProgram.id}/assign-users`, {
+            userIds: toAdd,
+          });
+          messages.push(`✅ ${toAdd.length} usuario(s) agregados`);
+        }
+
+        if (toRemove.length > 0) {
+          for (const userId of toRemove) {
+            await api.delete(`/programs/${assignProgram.id}/users/${userId}`);
+          }
+          messages.push(`❌ ${toRemove.length} usuario(s) removidos`);
+        }
+
+        if (toAdd.length === 0 && toRemove.length === 0) {
+          setAssignResult("ℹ️ No hay cambios para guardar");
+        } else {
+          setAssignResult(messages.join(" | "));
+          setAssignedUserIds(selectedUsers);
+        }
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };
@@ -204,6 +254,7 @@ export default function Programs() {
   const openQuestions = async (p: Program) => {
     setQuestionsProgram(p);
     setQuestionsMessage("");
+    setQuestionsModalTab("manage");
     setShowQuestionsModal(true);
 
     try {
@@ -212,10 +263,12 @@ export default function Programs() {
         api.get(`/programs/${p.id}/questions`),
       ]);
       setAllQuestions(qRes.data);
+      setProgramQuestions(pqRes.data);
       setAssignedQuestionIds(pqRes.data.map((q: { id: number }) => q.id));
       setSelectedQuestionIds(pqRes.data.map((q: { id: number }) => q.id));
     } catch {
       setAllQuestions([]);
+      setProgramQuestions([]);
       setAssignedQuestionIds([]);
     }
   };
@@ -225,23 +278,26 @@ export default function Programs() {
     setSavingQuestions(true);
     setQuestionsMessage("");
     try {
-      // Remover las que ya no están seleccionadas
-      const toRemove = assignedQuestionIds.filter(id => {
-        const isChecked = selectedQuestionIds.includes(id);
-        return !isChecked;
-      });
-      for (const qId of toRemove) {
-        await api.delete(`/programs/${questionsProgram.id}/questions/${qId}`);
-      }
+      // Solo guardar del tab "Asignar existentes"
+      if (questionsModalTab === "assign") {
+        const toRemove = assignedQuestionIds.filter(id => {
+          const isChecked = selectedQuestionIds.includes(id);
+          return !isChecked;
+        });
+        for (const qId of toRemove) {
+          await api.delete(`/programs/${questionsProgram.id}/questions/${qId}`);
+        }
 
-      // Agregar las nuevas
-      const toAdd = selectedQuestionIds.filter(id => !assignedQuestionIds.includes(id));
-      if (toAdd.length > 0) {
-        await api.post(`/programs/${questionsProgram.id}/assign-questions`, { questionIds: toAdd });
-      }
+        const toAdd = selectedQuestionIds.filter(id => !assignedQuestionIds.includes(id));
+        if (toAdd.length > 0) {
+          await api.post(`/programs/${questionsProgram.id}/assign-questions`, { questionIds: toAdd });
+        }
 
-      setQuestionsMessage("✅ Preguntas actualizadas");
-      setAssignedQuestionIds(selectedQuestionIds);
+        setQuestionsMessage("✅ Preguntas actualizadas");
+        setAssignedQuestionIds(selectedQuestionIds);
+      } else {
+        setQuestionsMessage("✅ Preguntas del programa actualizadas");
+      }
       fetchPrograms();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };
@@ -249,6 +305,93 @@ export default function Programs() {
     } finally {
       setSavingQuestions(false);
     }
+  };
+
+  // ==================== GESTIONAR PREGUNTAS DEL PROGRAMA ====================
+  const resetQuestionForm = () => {
+    setQuestionForm({
+      text: "",
+      description: "",
+      order: 0,
+      frequencyType: "UNICA",
+      frequencyDay: null,
+      frequencyInterval: null,
+      configs: [],
+      options: [],
+    });
+  };
+
+  const openCreateQuestion = () => {
+    setEditingProgramQuestion(null);
+    resetQuestionForm();
+    setActiveQuestionFormTab("general");
+    setShowCreateQuestionModal(true);
+  };
+
+  const openEditQuestion = (q: typeof editingProgramQuestion) => {
+    if (!q) return;
+    setEditingProgramQuestion(q);
+    setQuestionForm({
+      text: q.text,
+      description: q.description || "",
+      order: q.order,
+      frequencyType: q.frequencyType || "UNICA",
+      frequencyDay: q.frequencyDay || null,
+      frequencyInterval: q.frequencyInterval || null,
+      configs: q.configs || [],
+      options: q.options?.map(o => ({ label: o.label, text: o.text, score: o.score })) || [],
+    });
+    setActiveQuestionFormTab("general");
+    setShowCreateQuestionModal(true);
+  };
+
+  const handleSaveProgramQuestion = async () => {
+    if (!questionsProgram) return;
+    try {
+      if (editingProgramQuestion) {
+        await api.put(`/questions/${editingProgramQuestion.id}`, {
+          ...questionForm,
+          targetType: "MIS_PROGRAMAS",
+        });
+      } else {
+        await api.post(`/programs/${questionsProgram.id}/create-question`, questionForm);
+      }
+      // Refresh preguntas
+      const pqRes = await api.get(`/programs/${questionsProgram.id}/questions`);
+      setProgramQuestions(pqRes.data);
+      setShowCreateQuestionModal(false);
+      setEditingProgramQuestion(null);
+      resetQuestionForm();
+      fetchPrograms();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      alert(axiosErr.response?.data?.error || "Error al guardar pregunta");
+    }
+  };
+
+  const handleDeleteProgramQuestion = async (questionId: number) => {
+    if (!questionsProgram || !confirm("¿Eliminar esta pregunta del programa?")) return;
+    try {
+      await api.delete(`/programs/${questionsProgram.id}/questions/${questionId}`);
+      const pqRes = await api.get(`/programs/${questionsProgram.id}/questions`);
+      setProgramQuestions(pqRes.data);
+      fetchPrograms();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      alert(axiosErr.response?.data?.error || "Error al eliminar pregunta");
+    }
+  };
+
+  const handleOptionChange = (index: number, field: string, value: string | number) => {
+    const newOptions = [...questionForm.options];
+    newOptions[index] = { ...newOptions[index], [field]: value };
+    setQuestionForm({ ...questionForm, options: newOptions });
+  };
+
+  const handleConfigChange = (index: number, field: string, value: string | number) => {
+    const newConfigs = [...questionForm.configs];
+    newConfigs[index] = { ...newConfigs[index], [field]: value };
+    setQuestionForm({ ...questionForm, configs: newConfigs });
   };
 
   // Filtrar usuarios para modo individual
@@ -260,12 +403,12 @@ export default function Programs() {
   });
 
   return (
-    <Layout title="Programas de Excelencia">
+    <Layout title="Autoevaluaciones Mensuales">
       <div className="px-4 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Programas de Excelencia</h2>
+            <h2 className="text-xl font-bold text-slate-900">Autoevaluaciones Mensuales</h2>
             <p className="text-sm text-slate-500 mt-0.5">
               {loading ? "Cargando..." : `${programs.length} programas`}
             </p>
@@ -314,6 +457,9 @@ export default function Programs() {
                     </button>
                     <button onClick={() => openEdit(p)} className="text-xs text-slate-500 hover:underline py-1">
                       Editar
+                    </button>
+                    <button onClick={() => { setExcelProgram(p); setShowExcelModal(true); }} className="text-xs text-blue-600 hover:underline py-1">
+                      📊 Excel
                     </button>
                     <button onClick={() => openDelete(p)} className="text-xs text-red-500 hover:underline py-1">
                       Eliminar
@@ -559,36 +705,114 @@ export default function Programs() {
           </div>
         )}
 
-        {/* Modal Gestionar Preguntas */}
+        {/* Modal Gestionar Preguntas - CON 2 TABS */}
         {showQuestionsModal && questionsProgram && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold text-slate-900">Preguntas de {questionsProgram.name}</h3>
                 <button onClick={() => setShowQuestionsModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
               </div>
 
-              <p className="text-sm text-slate-500">Selecciona las preguntas que pertenecen a este programa:</p>
+              {/* Tabs */}
+              <div className="flex border-b border-slate-200">
+                <button
+                  onClick={() => setQuestionsModalTab("manage")}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    questionsModalTab === "manage"
+                      ? "border-b-2 border-brand-600 text-brand-600"
+                      : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  📝 Preguntas del programa ({programQuestions.length})
+                </button>
+                <button
+                  onClick={() => setQuestionsModalTab("assign")}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    questionsModalTab === "assign"
+                      ? "border-b-2 border-brand-600 text-brand-600"
+                      : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  📋 Asignar existentes
+                </button>
+              </div>
 
-              {/* Lista de preguntas con checkboxes */}
-              <div className="border border-slate-200 rounded-lg max-h-[28rem] overflow-y-auto">
-                {allQuestions.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-slate-400">No hay preguntas creadas</div>
-                ) : (
-                  allQuestions
-                    .sort((a, b) => a.order - b.order)
-                    .map((q, i) => {
-                      const freqLabels: Record<string, string> = {
-                        UNICA: "",
-                        DIARIA: "📅 Diaria",
-                        SEMANAL: "📆 Semanal",
-                        MENSUAL: "🗓️ Mensual",
-                        ANUAL: "📋 Anual",
-                        DIA_ESPECIFICO: `📅 Día ${q.frequencyDay || 1}`,
-                      };
-                      const freqLabel = freqLabels[q.frequencyType || "UNICA"] || "";
+              {/* TAB: Preguntas del programa */}
+              {questionsModalTab === "manage" && (
+                <div className="space-y-4">
+                  <button
+                    onClick={openCreateQuestion}
+                    className="w-full px-4 py-3 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
+                  >
+                    + Nueva Pregunta
+                  </button>
 
-                      return (
+                  <div className="border border-slate-200 rounded-lg max-h-[24rem] overflow-y-auto">
+                    {programQuestions.length === 0 ? (
+                      <div className="p-8 text-center text-sm text-slate-400">
+                        No hay preguntas creadas para este programa.<br />
+                        Click "+ Nueva Pregunta" para crear la primera.
+                      </div>
+                    ) : (
+                      programQuestions.sort((a, b) => a.order - b.order).map((q, i) => {
+                        const freqLabels: Record<string, string> = {
+                          UNICA: "Única",
+                          DIARIA: "Diaria",
+                          SEMANAL: "Semanal",
+                          MENSUAL: "Mensual",
+                          ANUAL: "Anual",
+                          DIA_ESPECIFICO: `Día ${q.frequencyDay || 1}`,
+                        };
+                        return (
+                          <div key={q.id} className="p-4 border-b border-slate-100 last:border-b-0">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-slate-800">{i + 1}. {q.text}</p>
+                                {q.description && <p className="text-xs text-slate-500 mt-1">{q.description}</p>}
+                                <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
+                                  {q.options && q.options.length > 0 && (
+                                    <span>Opciones: {q.options.map(o => `${o.label}=${o.score}pts`).join(", ")}</span>
+                                  )}
+                                  {q.configs && q.configs.length > 0 && (
+                                    <span>Archivos: {q.configs.map(c => `${c.fileType} (${c.maxFiles})`).join(", ")}</span>
+                                  )}
+                                  <span className="text-brand-600">{freqLabels[q.frequencyType || "UNICA"] || "Única"}</span>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => openEditQuestion(q)}
+                                  className="text-xs text-brand-600 hover:underline"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProgramQuestion(q.id)}
+                                  className="text-xs text-red-600 hover:underline"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: Asignar existentes */}
+              {questionsModalTab === "assign" && (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-500">Selecciona preguntas existentes para asignar a este programa:</p>
+
+                  <div className="border border-slate-200 rounded-lg max-h-[24rem] overflow-y-auto">
+                    {allQuestions.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-slate-400">No hay preguntas creadas</div>
+                    ) : (
+                      allQuestions.sort((a, b) => a.order - b.order).map((q, i) => (
                         <label key={q.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 cursor-pointer">
                           <input
                             type="checkbox"
@@ -599,30 +823,29 @@ export default function Programs() {
                             }}
                             className="mt-1 rounded border-slate-300 shrink-0"
                           />
-                          <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-slate-800">{i + 1}. {q.text}</p>
-                            {q.description && <p className="text-xs text-slate-500">{q.description}</p>}
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                            <div className="flex gap-2 text-xs text-slate-500">
                               {q.options && q.options.length > 0 && (
-                                <span>Opciones: {q.options.map(o => `${o.label}=${o.score}pts`).join(", ")}</span>
+                                <span>{q.options.map(o => `${o.label}=${o.score}pts`).join(", ")}</span>
                               )}
-                              {q.configs && q.configs.length > 0 && (
-                                <span>Archivos: {q.configs.map(c => `${c.fileType} (${c.maxFiles})`).join(", ")}</span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                              {freqLabel && <span className="text-xs text-brand-600">{freqLabel}</span>}
-                              {q.cargos && q.cargos.length > 0 && (
-                                <span className="text-xs text-slate-400">Cargos: {q.cargos.map(c => c.cargo.name).join(", ")}</span>
-                              )}
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                q.targetType === "EXCELENCIA" ? "bg-blue-100 text-blue-700" :
+                                q.targetType === "MIS_PROGRAMAS" ? "bg-purple-100 text-purple-700" :
+                                "bg-slate-100 text-slate-500"
+                              }`}>
+                                {q.targetType === "EXCELENCIA" ? "AutoEval" : 
+                                 q.targetType === "MIS_PROGRAMAS" ? "Programas" : "Ambos"}
+                              </span>
                             </div>
                           </div>
                         </label>
-                      );
-                    })
-                )}
-              </div>
-              <p className="text-xs text-slate-400">{selectedQuestionIds.length} pregunta(s) seleccionada(s)</p>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400">{selectedQuestionIds.length} pregunta(s) seleccionada(s)</p>
+                </div>
+              )}
 
               {questionsMessage && (
                 <div className={`text-sm p-3 rounded-lg ${questionsMessage.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
@@ -632,12 +855,248 @@ export default function Programs() {
 
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowQuestionsModal(false)} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm hover:bg-slate-50">Cerrar</button>
-                <button onClick={handleSaveQuestions} disabled={savingQuestions} className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50">
-                  {savingQuestions ? "Guardando..." : "Guardar selección"}
+                {questionsModalTab === "assign" && (
+                  <button onClick={handleSaveQuestions} disabled={savingQuestions} className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:opacity-50">
+                    {savingQuestions ? "Guardando..." : "Guardar selección"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Crear/Editar Pregunta de Programa */}
+        {showCreateQuestionModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-slate-900">
+                  {editingProgramQuestion ? "✏️ Editar Pregunta" : "➕ Nueva Pregunta"}
+                </h3>
+                <button onClick={() => setShowCreateQuestionModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+
+              {/* Tabs del form */}
+              <div className="flex border-b border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setActiveQuestionFormTab("general")}
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    activeQuestionFormTab === "general"
+                      ? "border-b-2 border-brand-600 text-brand-600"
+                      : "text-slate-600"
+                  }`}
+                >
+                  📝 General
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveQuestionFormTab("options")}
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    activeQuestionFormTab === "options"
+                      ? "border-b-2 border-brand-600 text-brand-600"
+                      : "text-slate-600"
+                  }`}
+                >
+                  🎯 Opciones
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveQuestionFormTab("files")}
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    activeQuestionFormTab === "files"
+                      ? "border-b-2 border-brand-600 text-brand-600"
+                      : "text-slate-600"
+                  }`}
+                >
+                  📎 Archivos
+                </button>
+              </div>
+
+              {/* TAB: General */}
+              {activeQuestionFormTab === "general" && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Pregunta *</label>
+                    <textarea
+                      value={questionForm.text}
+                      onChange={e => setQuestionForm({ ...questionForm, text: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                      rows={3}
+                      placeholder="Escribe la pregunta..."
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
+                    <textarea
+                      value={questionForm.description}
+                      onChange={e => setQuestionForm({ ...questionForm, description: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                      rows={2}
+                      placeholder="Descripción adicional..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Orden</label>
+                      <input
+                        type="number"
+                        value={questionForm.order}
+                        onChange={e => setQuestionForm({ ...questionForm, order: parseInt(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Frecuencia</label>
+                      <select
+                        value={questionForm.frequencyType}
+                        onChange={e => setQuestionForm({ ...questionForm, frequencyType: e.target.value, frequencyDay: null, frequencyInterval: null })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                      >
+                        <option value="UNICA">Única</option>
+                        <option value="DIARIA">Diaria</option>
+                        <option value="SEMANAL">Semanal</option>
+                        <option value="MENSUAL">Mensual</option>
+                        <option value="ANUAL">Anual</option>
+                        <option value="DIA_ESPECIFICO">Día específico</option>
+                      </select>
+                    </div>
+                  </div>
+                  {questionForm.frequencyType === "MENSUAL" && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Día del mes (1-31)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={questionForm.frequencyDay || 1}
+                        onChange={e => setQuestionForm({ ...questionForm, frequencyDay: parseInt(e.target.value) })}
+                        className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: Opciones */}
+              {activeQuestionFormTab === "options" && (
+                <div className="space-y-3">
+                  {questionForm.options.map((opt, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={opt.label}
+                        onChange={e => handleOptionChange(i, "label", e.target.value)}
+                        className="w-16 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                        placeholder="A"
+                      />
+                      <input
+                        type="text"
+                        value={opt.text}
+                        onChange={e => handleOptionChange(i, "text", e.target.value)}
+                        className="flex-1 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                        placeholder="Texto de la opción"
+                      />
+                      <input
+                        type="number"
+                        value={opt.score}
+                        onChange={e => handleOptionChange(i, "score", parseInt(e.target.value) || 0)}
+                        className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                        placeholder="Pts"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, options: questionForm.options.filter((_, idx) => idx !== i) })}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuestionForm({
+                      ...questionForm,
+                      options: [...questionForm.options, { label: String.fromCharCode(65 + questionForm.options.length), text: "", score: 0 }]
+                    })}
+                    className="text-sm text-brand-600 hover:underline"
+                  >
+                    + Agregar opción
+                  </button>
+                </div>
+              )}
+
+              {/* TAB: Archivos */}
+              {activeQuestionFormTab === "files" && (
+                <div className="space-y-3">
+                  {questionForm.configs.map((cfg, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <select
+                        value={cfg.fileType}
+                        onChange={e => handleConfigChange(i, "fileType", e.target.value)}
+                        className="w-32 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      >
+                        <option value="IMAGEN">Imagen</option>
+                        <option value="PDF">PDF</option>
+                        <option value="PPT">PPT</option>
+                        <option value="EXCEL">Excel</option>
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        max={5}
+                        value={cfg.maxFiles}
+                        onChange={e => handleConfigChange(i, "maxFiles", parseInt(e.target.value) || 1)}
+                        className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                      />
+                      <span className="text-sm text-slate-500">archivos</span>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, configs: questionForm.configs.filter((_, idx) => idx !== i) })}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setQuestionForm({
+                      ...questionForm,
+                      configs: [...questionForm.configs, { fileType: "IMAGEN", maxFiles: 1 }]
+                    })}
+                    className="text-sm text-brand-600 hover:underline"
+                  >
+                    + Agregar tipo de archivo
+                  </button>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateQuestionModal(false)}
+                  className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProgramQuestion}
+                  disabled={!questionForm.text || questionForm.options.length === 0}
+                  className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {editingProgramQuestion ? "💾 Guardar cambios" : "✨ Crear Pregunta"}
                 </button>
               </div>
             </div>
           </div>
+        )}
+
+        {/* Modal Excel Config */}
+        {showExcelModal && excelProgram && (
+          <ExcelConfigModal program={excelProgram} onClose={() => { setShowExcelModal(false); setExcelProgram(null); }} />
         )}
       </div>
     </Layout>
